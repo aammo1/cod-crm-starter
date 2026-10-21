@@ -81,8 +81,8 @@ Task 05 implements against the shared typed catalog port, with final runtime bin
 ### Wave 1
 - [x] [task-01-isolated-extraction](./tasks/task-01-isolated-extraction.md) — Standalone project bootstrap
 ### Wave 2
-- [ ] [task-02-generic-schema](./tasks/task-02-generic-schema.md) — Generic persistence and shared contracts
-- [ ] [task-03-store-configuration](./tasks/task-03-store-configuration.md) — Settings service and pricing
+- [x] [task-02-generic-schema](./tasks/task-02-generic-schema.md) — Generic persistence and shared contracts
+- [x] [task-03-store-configuration](./tasks/task-03-store-configuration.md) — Settings service and pricing
 ### Wave 3
 - [ ] [task-04-catalog-service](./tasks/task-04-catalog-service.md) — Flexible catalog CRUD
 - [ ] [task-05-order-persistence](./tasks/task-05-order-persistence.md) — Checkout persistence and durable upsells

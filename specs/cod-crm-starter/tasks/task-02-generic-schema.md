@@ -1,7 +1,7 @@
 # Task 02: Define generic variant persistence and shared types
 
 ## Status
-pending
+complete
 
 ## Wave
 2

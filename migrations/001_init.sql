@@ -1,4 +1,4 @@
--- Legacy tables (kept so fresh DBs match the current app; IF NOT EXISTS = no-op on live DB)
+-- Starter-only fresh lineage; not a migration path for a live source database.
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY, customer_name TEXT NOT NULL, customer_phone TEXT NOT NULL,
   items_json TEXT NOT NULL, upsell_offer_json TEXT, upsell_status TEXT NOT NULL DEFAULT 'pending',
@@ -34,20 +34,21 @@ CREATE TABLE IF NOT EXISTS product_colors (
 );
 CREATE TABLE IF NOT EXISTS variants (
   id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  color_id TEXT NOT NULL REFERENCES product_colors(id) ON DELETE CASCADE,
-  size TEXT NOT NULL, sku TEXT NOT NULL UNIQUE, active INTEGER NOT NULL DEFAULT 1,
+  -- Nullable legacy bridge until catalog/operational callers use generic options.
+  color_id TEXT REFERENCES product_colors(id) ON DELETE CASCADE,
+  size TEXT, sku TEXT NOT NULL UNIQUE, active INTEGER NOT NULL DEFAULT 1,
   UNIQUE(product_id, color_id, size)
 );
 CREATE TABLE IF NOT EXISTS stock_balances (
   variant_id TEXT NOT NULL REFERENCES variants(id) ON DELETE CASCADE,
-  location TEXT NOT NULL DEFAULT 'ZEHRI',
+  location TEXT NOT NULL DEFAULT 'MAIN',
   physical INTEGER NOT NULL DEFAULT 0, reserved INTEGER NOT NULL DEFAULT 0, quarantine INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(variant_id, location),
   CHECK(physical >= 0 AND reserved >= 0 AND quarantine >= 0 AND quarantine <= physical)
 );
 CREATE TABLE IF NOT EXISTS stock_movements (
   id TEXT PRIMARY KEY, variant_id TEXT NOT NULL REFERENCES variants(id) ON DELETE CASCADE,
-  location TEXT NOT NULL DEFAULT 'ZEHRI',
+  location TEXT NOT NULL DEFAULT 'MAIN',
   kind TEXT NOT NULL CHECK(kind IN ('opening','reserve','release','dispatch','receive_sellable','receive_quarantine','adjust_physical','adjust_quarantine')),
   qty INTEGER NOT NULL, reason TEXT, order_id TEXT, submission_id TEXT,
   actor TEXT NOT NULL, source TEXT NOT NULL, ref TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL

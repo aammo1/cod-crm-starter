@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,13 +70,18 @@ test("production mock startup creates an empty isolated CRM and protects operati
     assert.equal((await fetch(`${origin}/boutique`)).status, 404);
     assert.equal((await fetch(`${origin}/api/catalog-agent`)).status, 503);
     db = new Database(dbPath, { readonly: true });
-    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM _migrations").get().n, 15);
+    const expectedMigrations = readdirSync(path.join(root, "migrations"))
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+    const appliedMigrations = db.prepare("SELECT name FROM _migrations ORDER BY name").all()
+      .map(({ name }) => name);
+    assert.deepEqual(appliedMigrations, expectedMigrations);
     for (const table of ["users", "products", "variants", "orders", "courier_submissions", "reservations", "stock_movements"]) {
       assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n, 0, table);
     }
     assert.equal(db.pragma("integrity_check", { simple: true }), "ok");
     assert.deepEqual(db.pragma("foreign_key_check"), []);
-    console.log("Mock health, protected redirects, login, removed storefront, disabled automation, 15 migrations and empty operational tables verified.");
+    console.log(`Mock health, protected redirects, login, removed storefront, disabled automation, ${appliedMigrations.length} migrations and empty operational tables verified.`);
   } finally {
     db?.close();
     child.kill("SIGTERM");
