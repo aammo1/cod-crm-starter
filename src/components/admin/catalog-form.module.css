@@ -1,0 +1,12 @@
+.form {
+  --background: #0c0108;
+  --foreground: #fff;
+  --border: rgb(255 255 255 / 12%);
+  --input: rgb(255 255 255 / 20%);
+  --muted: #24121e;
+  --muted-foreground: #b6aab2;
+  --primary: #89005d;
+  --primary-foreground: #fff;
+  --destructive: #ff8ba0;
+  color-scheme: dark;
+}

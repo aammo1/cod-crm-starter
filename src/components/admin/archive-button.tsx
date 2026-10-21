@@ -18,7 +18,7 @@ export function ArchiveButton({
   async function handleClick() {
     setPending(true);
     try {
-      const res = await fetch(`/api/admin/products/${productId}/${active ? "archive" : "restore"}`, {
+      const res = await fetch(`/api/admin/products/${encodeURIComponent(productId)}/${active ? "archive" : "restore"}`, {
         method: "POST",
       });
       if (!res.ok) {

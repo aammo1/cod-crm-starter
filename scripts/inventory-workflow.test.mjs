@@ -7,282 +7,68 @@ import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadSource } from "./test-source.mjs";
 
-const child = process.env.ZEHRI_INVENTORY_CHILD;
-const temp = child ? null : fs.mkdtempSync(path.join(os.tmpdir(), "zehri-inventory-"));
-if (temp) process.env.DB_PATH = path.join(temp, "test.db");
+const child = process.env.CRM_INVENTORY_CHILD;
+const temp = child ? null : fs.mkdtempSync(path.join(os.tmpdir(), "crm-inventory-"));
+if (temp) {
+  process.env.DB_PATH = path.join(temp, "test.db");
+  process.env.UPLOAD_DIR = path.join(temp, "uploads");
+}
 process.env.DELIVERY_PROVIDER = "mock";
 process.env.OZON_CLIENT_ID = "";
 process.env.OZON_API_KEY = "";
-const { getDb, createOrder, getOrder } = loadSource("@/lib/db");
+const { getDb } = loadSource("@/lib/db");
 const inventory = loadSource("@/lib/services/inventory");
-const { confirmOrder, cancelOrder } = loadSource("@/lib/services/confirmation");
-const { drainSubmissions } = loadSource("@/lib/workers/submission");
-const { declareManualReturn } = loadSource("@/lib/services/returns");
-const { getDashboard } = loadSource("@/lib/services/dashboard");
-const { stockAdjustSchema } = loadSource("@/lib/api-schemas");
-const { stockBatchSchema } = loadSource("@/lib/services/inventory-schemas");
-const { createProduct, getProductById, updateProduct } = loadSource("@/lib/services/catalog");
-const { createProductSchema } = loadSource("@/lib/services/catalog-schemas");
+const { stockAdjustSchema, stockOpeningSchema, stockBatchSchema } = loadSource("@/lib/services/inventory-schemas");
+const { createProduct, updateProduct, getProductById } = loadSource("@/lib/services/catalog");
 const db = getDb();
-const input = { lines: [{ lineIndex: 0, variantId: "last" }], address: "12 rue test", cityId: 1 };
-const actor = { id: "inventory-admin" };
-const balance = (id) => db.prepare("SELECT physical, reserved, quarantine FROM stock_balances WHERE variant_id = ?").get(id);
+const actor = "inventory-admin";
+const balance = id => db.prepare("SELECT physical, reserved, quarantine FROM stock_balances WHERE variant_id=? AND location='MAIN'").get(id);
+const movementCount = () => db.prepare("SELECT COUNT(*) n FROM stock_movements").get().n;
+const batch = (requestId, mode, items, reason) => ({ requestId, mode, items, ...(reason ? { reason } : {}) });
+const apply = request => inventory.applyStockBatch(request, actor);
 
 if (child) {
   process.once("message", () => {
     try {
-      const result = process.env.ZEHRI_STOCK_BATCH
-        ? inventory.applyStockBatch(JSON.parse(process.env.ZEHRI_STOCK_BATCH), actor.id)
-        : confirmOrder(child, input, actor);
+      const request = JSON.parse(process.env.CRM_INVENTORY_REQUEST);
+      const result = request.mode ? apply(request) : inventory.reserveForOrder(request.orderId, request.lines, actor, "test");
       process.send({ ok: true, result });
-    } catch (error) {
-      process.send({ ok: false, status: error.status, name: error.name });
-    } finally {
-      db.close();
-      process.disconnect();
-    }
+    } catch (error) { process.send({ ok: false, name: error.name }); }
+    finally { db.close(); process.disconnect(); }
   });
   process.send({ ready: true });
 } else {
   after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
   const now = new Date().toISOString();
-  db.prepare(`INSERT INTO products (id, slug, name, category, price, created_at, updated_at)
-    VALUES ('p', 'inventory-test', 'Bottines test', 'bottines', 300, ?, ?)`).run(now, now);
-  db.prepare("INSERT INTO product_colors (id, product_id, name) VALUES ('c', 'p', 'Noir')").run();
-  for (const [id, size] of [["adjust", "37"], ["last", "38"], ["merged", "39"]]) {
-    db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES (?, 'p', 'c', ?, ?)").run(id, size, id);
-  }
-  db.prepare("INSERT INTO cities (id, name, updated_at) VALUES (1, 'Casablanca', ?)").run(now);
-  function order(id, size = "38", quantity = 1) {
-    createOrder({ id, customerName: "Cliente test", customerPhone: "+212612345678",
-      items: [{ product_id: "p", name: "Bottines test", color: "Noir", size, quantity,
-        unit_price: 300, line_total: 300 * quantity }], upsellOffer: null,
-      subtotal: 300 * quantity, shipping: 29, total: 300 * quantity + 29 });
-  }
-
-  test("opening is exactly once and conflicting replay leaves balances unchanged", () => {
-    inventory.openStock("adjust", 10, actor.id);
-    inventory.openStock("adjust", 10, actor.id);
-    assert.throws(() => inventory.openStock("adjust", 11, actor.id), inventory.InventoryConflictError);
-    assert.equal(balance("adjust").physical, 10);
-    assert.equal(db.prepare("SELECT COUNT(*) n FROM stock_movements WHERE variant_id = 'adjust'").get().n, 1);
-  });
-
-  test("adjustment retries are atomic and cannot add, omit or change a delta", () => {
-    inventory.adjustStock("adjust", { physicalDelta: 2, quarantineDelta: 1 }, "test", actor.id, "adjust-once");
-    const before = balance("adjust");
-    inventory.adjustStock("adjust", { physicalDelta: 2, quarantineDelta: 1 }, "test", actor.id, "adjust-once");
-    for (const change of [{ physicalDelta: 2 }, { quarantineDelta: 1 }, { physicalDelta: 3, quarantineDelta: 1 }]) {
-      assert.throws(() => inventory.adjustStock("adjust", change, "test", actor.id, "adjust-once"), inventory.InventoryConflictError);
-    }
-    inventory.adjustStock("adjust", { physicalDelta: 1 }, "test", actor.id, "physical-only");
-    assert.throws(() => inventory.adjustStock("adjust", { physicalDelta: 1, quarantineDelta: 1 }, "test", actor.id, "physical-only"), inventory.InventoryConflictError);
-    assert.deepEqual(balance("adjust"), { ...before, physical: before.physical + 1 });
-  });
-
-  test("adjustments reject fractions, negative stock and quarantine above physical without movements", () => {
-    const before = balance("adjust");
-    const count = inventory.listMovements({ variantId: "adjust" }).length;
-    for (const change of [{ physicalDelta: -100 }, { quarantineDelta: 100 }, { physicalDelta: 0.5 }, { quarantineDelta: -100 }]) {
-      assert.throws(() => inventory.adjustStock("adjust", change, "test", actor.id, "invalid"));
-    }
-    assert.deepEqual(balance("adjust"), before);
-    assert.equal(inventory.listMovements({ variantId: "adjust" }).length, count);
-    assert.equal(stockAdjustSchema.safeParse({ variantId: "adjust", physicalDelta: 0.5, reason: "test" }).success, false);
-    assert.equal(stockAdjustSchema.safeParse({ variantId: "adjust", physicalDelta: 1, reason: "test", requestId: "invalid" }).success, false);
-  });
-
-  test("reserved stock cannot be removed; cancellation prevents provider calls", async () => {
-    inventory.openStock("merged", 3, actor.id);
-    order("merged-order", "39", 2);
-    confirmOrder("merged-order", { ...input, lines: [{ lineIndex: 0, variantId: "merged" }] }, actor);
-    assert.throws(() => inventory.adjustStock("merged", { physicalDelta: -2 }, "test", actor.id, "under-reserved"));
-    assert.equal(inventory.availableFor("merged"), 1);
-    cancelOrder("merged-order", { reason: "Cliente annule" }, actor);
-    assert.equal(db.prepare("SELECT status FROM courier_submissions WHERE order_id='merged-order'").get().status, "failed");
-    assert.equal(getDashboard().pendingSubmissions.count, 0);
-    assert.equal(getDashboard().failedSubmissions.count, 0);
-    let calls = 0;
-    await drainSubmissions({ createParcel: async () => { calls++; throw new Error("must not call"); } });
-    assert.equal(calls, 0);
-    assert.deepEqual(balance("merged"), { physical: 3, reserved: 0, quarantine: 0 });
-    assert.equal(getOrder("merged-order").confirmationStatus, "cancelled");
-  });
-
-  test("two independent SQLite processes competing for the last pair have exactly one winner", async () => {
-    inventory.openStock("last", 1, actor.id);
-    order("last-a"); order("last-b");
-    const children = ["last-a", "last-b"].map(id => fork(fileURLToPath(import.meta.url), [], {
-      env: { ...process.env, ZEHRI_INVENTORY_CHILD: id }, execArgv: [], stdio: ["ignore", "ignore", "inherit", "ipc"],
-    }));
-    try {
-      const results = children.map(proc => new Promise((resolve, reject) => {
-        proc.on("error", reject);
-        proc.on("message", msg => { if (!msg.ready) resolve(msg); });
-        proc.on("exit", code => { if (code !== 0) reject(new Error(`Child exit ${code}`)); });
-      }));
-      const exits = children.map(proc => new Promise(resolve => proc.once("exit", resolve)));
-      await Promise.all(children.map(proc => new Promise(resolve => proc.once("message", msg => { assert.equal(msg.ready, true); resolve(); }))));
-      children.forEach(proc => proc.send("go"));
-      const outcomes = await Promise.all(results);
-      await Promise.all(exits);
-      assert.equal(outcomes.filter(result => result.ok).length, 1);
-      assert.equal(outcomes.find(result => !result.ok).status, 409);
-      assert.deepEqual(balance("last"), { physical: 1, reserved: 1, quarantine: 0 });
-      assert.equal(db.prepare("SELECT COUNT(*) n FROM courier_submissions WHERE order_id IN ('last-a','last-b')").get().n, 1);
-      assert.equal(db.prepare("SELECT COUNT(*) n FROM reservations WHERE variant_id = 'last'").get().n, 1);
-      assert.equal([getOrder("last-a"), getOrder("last-b")].filter(row => row.confirmationStatus === "new").length, 1);
-    } finally {
-      children.forEach(proc => { if (proc.exitCode === null) proc.kill(); });
-    }
-  });
-
-  test("the low-stock threshold includes exactly three available pairs", () => {
-    assert.equal(inventory.lowStock(3).find(row => row.variantId === "merged")?.available, 3);
-  });
-
-  test("manual returns cannot credit active or released reservations; dispatched declarations are attributed and idempotent", () => {
-    order("manual-return", "39");
-    const { submissionId } = confirmOrder("manual-return", { ...input, lines: [{ lineIndex: 0, variantId: "merged" }] }, actor);
-    db.prepare("UPDATE courier_submissions SET status='submitted',tracking_number='OZEMOCKMANUAL' WHERE id=?").run(submissionId);
-    const before = balance("merged");
-    assert.deepEqual(inventory.getDispatchedVariants("manual-return"), []);
-    assert.equal(declareManualReturn("OZEMOCKMANUAL", actor.id), null);
-    assert.throws(() => inventory.receiveReturnLines(submissionId, "manual-return",
-      [{ variantId: "merged", sellableQty: 1, damagedQty: 0 }], actor.id, "pre-dispatch"), inventory.InventoryConflictError);
-    assert.deepEqual(balance("merged"), before);
-    inventory.dispatchOrder("manual-return", actor.id);
-    const returned = declareManualReturn("OZEMOCKMANUAL", actor.id);
-    assert.equal(returned.status, "returning");
-    assert.equal(declareManualReturn("OZEMOCKMANUAL", actor.id).id, returned.id);
-    assert.equal(db.prepare("SELECT COUNT(*) n FROM order_contacts WHERE order_id='manual-return' AND note LIKE 'Retour déclaré%'").get().n, 1);
-    assert.equal(inventory.availableFor("merged"), 2); // Declaration itself never restocks.
-    assert.deepEqual(inventory.getDispatchedVariants("merged-order"), []); // Released cancellation.
-  });
-
-  test("duplicate variant lines merge before idempotency checks and replay never doubles reservations", () => {
-    order("duplicate-lines", "37", 2);
-    const lines = [{ variantId: "adjust", qty: 1 }, { variantId: "adjust", qty: 1 }];
-    inventory.reserveForOrder("duplicate-lines", lines, actor.id, "test");
-    const before = balance("adjust");
-    inventory.reserveForOrder("duplicate-lines", lines, actor.id, "test");
-    inventory.reserveForOrder("duplicate-lines", [{ variantId: "adjust", qty: 2 }], actor.id, "test");
-    assert.deepEqual(balance("adjust"), before);
-    assert.equal(db.prepare("SELECT COUNT(*) n FROM reservations WHERE order_id='duplicate-lines'").get().n, 1);
-    assert.throws(() => inventory.reserveForOrder("duplicate-lines", [{ variantId: "adjust", qty: 3 }], actor.id, "test"), inventory.InventoryConflictError);
-  });
-
+  const productInput = slug => ({ slug, name: "Sérum test", category: "Beauté", price: 150,
+    optionDefinitions: [{ name: "Contenance", values: ["30 ml", "500 ml", "XL"] }] });
+  const product = createProduct(productInput("serum"));
+  const standard = createProduct({ slug: "default", name: "Accessoire", category: "Accessoires", price: 100 });
+  const adjust = product.variants[0].id, last = standard.variants[0].id, merged = product.variants[1].id;
   function variant(id) {
-    db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES (?, 'p', 'c', ?, ?)").run(id, id, id);
+    // Generic raw fixture with no opening/balance: failure must roll it back.
+    db.prepare(`INSERT INTO variants (id, product_id, sku, label, options_json, options_key)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(id, product.id, id, `Lot : ${id}`,
+      JSON.stringify([{ name: "Lot", value: id }]), JSON.stringify([["lot", id]]));
     return id;
   }
-  const batch = (requestId, mode, items, reason) => ({ requestId, mode, items, ...(reason ? { reason } : {}) });
-  const apply = (request) => inventory.applyStockBatch(request, actor.id);
-  const movementCount = () => db.prepare("SELECT COUNT(*) n FROM stock_movements").get().n;
-
-  test("batch schemas reject invalid quantities, duplicates and incomplete correction snapshots", () => {
-    const valid = batch("validation", "receive", [{ variantId: "adjust", qty: 1 }]);
-    for (const qty of [-1, 0, 1.5, Number.MAX_SAFE_INTEGER + 1, Infinity, "2"]) {
-      assert.equal(stockBatchSchema.safeParse({ ...valid, items: [{ variantId: "adjust", qty }] }).success, false);
-    }
-    for (const request of [
-      { ...valid, requestId: " " }, { ...valid, items: [] }, { ...valid, items: [...valid.items, ...valid.items] },
-      { ...valid, mode: "count", reason: "Inventaire" },
-      { ...valid, mode: "count", items: [{ variantId: "adjust", qty: 1, expected: balance("adjust") }] },
-    ]) assert.equal(stockBatchSchema.safeParse(request).success, false);
-    assert.equal(stockBatchSchema.safeParse({ ...valid, items: [{ variantId: "adjust", qty: Number.MAX_SAFE_INTEGER }] }).success, true);
-  });
-
-  test("opening batches roll back every balance, movement and receipt on late failure; explicit zero opens once", () => {
-    const a = variant("batch-open-a");
-    const z = variant("batch-open-z");
-    inventory.openStock(z, 2, actor.id);
-    const before = movementCount();
-    const request = batch("opening-rollback", "opening", [{ variantId: a, qty: 3 }, { variantId: z, qty: 2 }]);
-    assert.throws(() => apply(request), inventory.InventoryConflictError);
-    assert.equal(balance(a), undefined);
-    assert.equal(movementCount(), before);
-    assert.equal(db.prepare("SELECT 1 FROM app_state WHERE key='inventory-batch:opening-rollback'").get(), undefined);
-    const good = batch(request.requestId, "opening", [{ variantId: a, qty: 0 }]);
-    const result = apply(good);
-    assert.equal(result.items[0].physical, 0);
-    assert.deepEqual(apply(good), result);
-    assert.throws(() => apply({ ...good, requestId: "new-opening" }), inventory.InventoryConflictError);
-    assert.throws(() => apply({ ...good, items: [{ variantId: a, qty: 1 }] }), inventory.InventoryConflictError);
-  });
-
-  test("receipts survive later changes; changed mode, reason, membership, quantity or snapshot conflicts", () => {
-    const a = variant("receipt-a"), b = variant("receipt-b");
-    apply(batch("receipt-open", "opening", [{ variantId: a, qty: 2 }, { variantId: b, qty: 3 }]));
-    const receive = batch("receipt-receive", "receive", [{ variantId: b, qty: 2 }, { variantId: a, qty: 1 }], "Livraison");
-    const received = apply(receive);
-    const count = batch("receipt-count", "count", [{ variantId: a, qty: 8, expected: balance(a) }], "Inventaire");
-    const counted = apply(count);
-    apply(batch("receipt-later", "receive", [{ variantId: a, qty: 4 }]));
-    const movements = movementCount();
-    assert.deepEqual(apply({ ...receive, items: receive.items.toReversed() }), received);
-    assert.deepEqual(apply(count), counted);
-    assert.equal(balance(a).physical, 12);
-    for (const changed of [
-      { ...receive, mode: "opening" }, { ...receive, reason: "Autre" },
-      { ...receive, items: receive.items.slice(0, 1) },
-      { ...receive, items: [{ variantId: a, qty: 9 }, receive.items[0]] },
-      { ...count, items: [{ ...count.items[0], expected: balance(a) }] },
-    ]) assert.throws(() => apply(changed), inventory.InventoryConflictError);
-    assert.equal(movementCount(), movements);
-  });
-
-  test("reception rejects unknown variants and overflow atomically", () => {
-    const a = variant("receive-atomic-a"), z = variant("receive-atomic-z");
-    apply(batch("receive-max", "opening", [{ variantId: z, qty: Number.MAX_SAFE_INTEGER }]));
-    const movements = movementCount();
-    for (const variantId of [z, "zz-missing"]) {
-      assert.throws(() => apply(batch(`invalid-${variantId}`, "receive", [{ variantId: a, qty: 2 }, { variantId, qty: 1 }])), inventory.InventoryValidationError);
-      assert.equal(balance(a), undefined);
-      assert.equal(movementCount(), movements);
-    }
-    assert.equal(balance(z).physical, Number.MAX_SAFE_INTEGER);
-  });
-
-  test("absolute counts preserve reserved/quarantine and reject stale snapshots and floors atomically", () => {
-    const a = variant("count-floor-a"), z = variant("count-floor-z");
-    apply(batch("count-floor-open", "opening", [{ variantId: a, qty: 10 }, { variantId: z, qty: 10 }]));
-    inventory.adjustStock(z, { quarantineDelta: 2 }, "Abîmées", actor.id, "floor-quarantine");
-    order("count-floor-order");
-    inventory.reserveForOrder("count-floor-order", [{ variantId: z, qty: 3 }], actor.id, "test");
-    const snapshot = balance(z), first = balance(a), movements = movementCount();
-    const request = batch("count-floor", "count", [{ variantId: a, qty: 7, expected: first }, { variantId: z, qty: 4, expected: snapshot }], "Comptage");
-    assert.throws(() => apply(request), inventory.InventoryConflictError);
-    assert.deepEqual(balance(a), first);
-    assert.deepEqual(balance(z), snapshot);
-    assert.equal(movementCount(), movements);
-    for (const field of ["physical", "reserved", "quarantine"]) {
-      const stale = { ...snapshot, [field]: snapshot[field] + 1 };
-      assert.throws(() => apply(batch(`stale-${field}`, "count", [{ variantId: z, qty: 8, expected: stale }], "Comptage")), inventory.InventoryConflictError);
-    }
-    apply({ ...request, items: [{ variantId: z, qty: 5, expected: snapshot }] });
-    assert.deepEqual(balance(z), { physical: 5, reserved: 3, quarantine: 2 });
-    assert.equal(inventory.availableFor(z), 0);
-    const noop = batch("count-noop", "count", [{ variantId: z, qty: 5, expected: balance(z) }], "Vérifié");
-    const result = apply(noop);
-    apply(batch("count-noop-later", "receive", [{ variantId: z, qty: 2 }]));
-    assert.deepEqual(apply(noop), result);
-    assert.equal(balance(z).physical, 7);
-  });
-
-  async function raceBatches(requests) {
+  function order(id) {
+    db.prepare(`INSERT INTO orders (id, customer_name, customer_phone, items_json, subtotal, shipping, total, upsell_status, created_at, updated_at)
+      VALUES (?, 'Cliente test', '+212612345678', '[]', 0, 29, 29, 'declined', ?, ?)`).run(id, now, now);
+  }
+  async function race(requests) {
     const children = requests.map(request => fork(fileURLToPath(import.meta.url), [], {
-      env: { ...process.env, ZEHRI_INVENTORY_CHILD: "stock-batch", ZEHRI_STOCK_BATCH: JSON.stringify(request) },
+      env: { ...process.env, CRM_INVENTORY_CHILD: "1", CRM_INVENTORY_REQUEST: JSON.stringify(request) },
       execArgv: [], stdio: ["ignore", "ignore", "inherit", "ipc"],
     }));
     try {
       const results = children.map(proc => new Promise((resolve, reject) => {
         proc.on("error", reject);
-        proc.on("message", msg => { if (!msg.ready) resolve(msg); });
+        proc.on("message", message => { if (!message.ready) resolve(message); });
         proc.on("exit", code => { if (code !== 0) reject(new Error(`Child exit ${code}`)); });
       }));
       const exits = children.map(proc => new Promise(resolve => proc.once("exit", resolve)));
-      await Promise.all(children.map(proc => new Promise(resolve => proc.once("message", msg => { assert.equal(msg.ready, true); resolve(); }))));
+      await Promise.all(children.map(proc => new Promise(resolve => proc.once("message", message => { assert.equal(message.ready, true); resolve(); }))));
       children.forEach(proc => proc.send("go"));
       const outcomes = await Promise.all(results);
       await Promise.all(exits);
@@ -290,112 +76,283 @@ if (child) {
     } finally { children.forEach(proc => { if (proc.exitCode === null) proc.kill(); }); }
   }
 
-  test("two processes correcting the same snapshot have one winner; concurrent retries apply reception once", async () => {
+  test("generic projection supports optionless and string-option variants at MAIN, including zero availability", () => {
+    assert.equal(inventory.DEFAULT_LOCATION, "MAIN");
+    const rows = inventory.listStockVariants();
+    assert.deepEqual(rows.find(v => v.variantId === last).options, []);
+    assert.equal(rows.find(v => v.variantId === last).label, "Standard");
+    assert.equal(rows.find(v => v.variantId === merged).options[0].value, "500 ml");
+    assert.equal(rows.find(v => v.variantId === merged).available, 0);
+    assert.equal(rows.find(v => v.variantId === merged).productName, "Sérum test");
+  });
+
+  test("opening is creation-only, exact replay is safe, conflicting retry and opening after reception fail", () => {
+    inventory.openStock(adjust, 10, actor);
+    inventory.openStock(adjust, 10, actor);
+    assert.throws(() => inventory.openStock(adjust, 11, actor), inventory.InventoryConflictError);
+    const received = variant("received");
+    apply(batch("received", "receive", [{ variantId: received, qty: 1 }]));
+    assert.throws(() => inventory.openStock(received, 3, actor), inventory.InventoryConflictError);
+    assert.equal(balance(adjust).physical, 10);
+    assert.equal(inventory.listMovements({ variantId: adjust }).length, 1);
+    assert.throws(() => inventory.openStock("missing", 1, actor), inventory.InventoryValidationError);
+  });
+
+  test("adjustments replay atomically, reject altered deltas, unsafe quantities and stock floors", () => {
+    inventory.adjustStock(adjust, { physicalDelta: 2, quarantineDelta: 1 }, "Test", actor, "adjust-once");
+    const before = balance(adjust), count = movementCount();
+    inventory.adjustStock(adjust, { physicalDelta: 2, quarantineDelta: 1 }, "Test", actor, "adjust-once");
+    for (const change of [{ physicalDelta: 2 }, { quarantineDelta: 1 }, { physicalDelta: 3, quarantineDelta: 1 }]) {
+      assert.throws(() => inventory.adjustStock(adjust, change, "Test", actor, "adjust-once"), inventory.InventoryConflictError);
+    }
+    for (const change of [{ physicalDelta: -100 }, { quarantineDelta: 100 }, { physicalDelta: 0.5 },
+      { quarantineDelta: -100 }, { physicalDelta: Number.MAX_SAFE_INTEGER }]) {
+      assert.throws(() => inventory.adjustStock(adjust, change, "Test", actor, "invalid"));
+    }
+    assert.deepEqual(balance(adjust), before);
+    assert.equal(movementCount(), count);
+  });
+
+  test("aggregated reserves and shortage metadata are generic; multi-line shortage rolls back all effects", () => {
+    order("duplicates");
+    const lines = [{ variantId: adjust, qty: 1 }, { variantId: adjust, qty: 1 }];
+    inventory.reserveForOrder("duplicates", lines, actor, "test");
+    const before = balance(adjust);
+    inventory.reserveForOrder("duplicates", [{ variantId: adjust, qty: 2 }], actor, "test");
+    assert.deepEqual(balance(adjust), before);
+    assert.throws(() => inventory.reserveForOrder("duplicates", [{ variantId: adjust, qty: 3 }], actor, "test"), inventory.InventoryConflictError);
+    order("shortage");
+    const count = movementCount();
+    assert.throws(() => inventory.reserveForOrder("shortage", [{ variantId: adjust, qty: 1 }, { variantId: merged, qty: 1 }], actor, "test"), error => {
+      assert.equal(error.name, "InsufficientStockError");
+      assert.equal(error.shortages[0].options[0].value, "500 ml");
+      assert.equal(error.shortages[0].productName, "Sérum test");
+      return true;
+    });
+    assert.deepEqual(balance(adjust), before);
+    assert.equal(movementCount(), count);
+  });
+
+  test("two independent processes reserving the last default unit have exactly one winner", async () => {
+    inventory.openStock(last, 1, actor);
+    order("last-a"); order("last-b");
+    const outcomes = await race(["last-a", "last-b"].map(orderId => ({ orderId, lines: [{ variantId: last, qty: 1 }] })));
+    assert.equal(outcomes.filter(r => r.ok).length, 1);
+    assert.equal(outcomes.find(r => !r.ok).name, "InsufficientStockError");
+    assert.deepEqual(balance(last), { physical: 1, reserved: 1, quarantine: 0 });
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM reservations WHERE variant_id=?").get(last).n, 1);
+  });
+
+  test("inactive historical variants release, dispatch and return by ID; new reservations are forbidden", () => {
+    inventory.openStock(merged, 4, actor);
+    order("release"); order("return"); order("inactive");
+    inventory.reserveForOrder("release", [{ variantId: merged, qty: 1 }], actor, "test");
+    inventory.reserveForOrder("return", [{ variantId: merged, qty: 2 }], actor, "test");
+    db.prepare("UPDATE variants SET active=0 WHERE id=?").run(merged);
+    assert.throws(() => inventory.reserveForOrder("inactive", [{ variantId: merged, qty: 1 }], actor, "test"), inventory.InventoryConflictError);
+    inventory.releaseForOrder("release", actor, "Annulation");
+    inventory.releaseForOrder("release", actor, "Annulation");
+    inventory.dispatchOrder("return", actor);
+    inventory.recoverDispatch("return", actor);
+    assert.deepEqual(balance(merged), { physical: 2, reserved: 0, quarantine: 0 });
+    assert.equal(inventory.resolveVariantForLine({ product_id: product.id, variant_id: merged }), merged);
+    assert.equal(inventory.resolveVariantForLine({ product_id: standard.id, variant_id: merged }), null);
+    db.prepare(`INSERT INTO courier_submissions (id, order_id, status, payload_json, next_retry_at, created_at, updated_at)
+      VALUES ('return-submission', 'return', 'submitted', '{}', ?, ?, ?)`).run(now, now, now);
+    db.prepare(`INSERT INTO returns (id, submission_id, status, created_at)
+      VALUES ('return-row', 'return-submission', 'received', ?)`).run(now);
+    const lines = [{ variantId: merged, sellableQty: 1, damagedQty: 1 }];
+    inventory.receiveReturnLines("return-submission", "return", lines, actor, "inspect");
+    inventory.receiveReturnLines("return-submission", "return", lines, actor, "inspect");
+    assert.deepEqual(balance(merged), { physical: 4, reserved: 0, quarantine: 1 });
+    assert.throws(() => inventory.receiveReturnLines("return-submission", "return", [{ ...lines[0], sellableQty: 2 }], actor, "other"), inventory.InventoryConflictError);
+    assert.equal(inventory.listStockVariants().some(v => v.variantId === merged), false);
+    assert.equal(inventory.listStockVariants({ includeInactive: true }).find(v => v.variantId === merged).active, false);
+    db.prepare("UPDATE variants SET active=1 WHERE id=?").run(merged);
+    db.prepare("UPDATE products SET active=0 WHERE id=?").run(product.id);
+    assert.throws(() => inventory.reserveForOrder("inactive", [{ variantId: merged, qty: 1 }], actor, "test"), inventory.InventoryConflictError);
+    db.prepare("UPDATE products SET active=1 WHERE id=?").run(product.id);
+  });
+
+  test("active/released reservations cannot credit a return; released or consumed reservations never reopen on retry", () => {
+    const id = variant("history");
+    inventory.openStock(id, 3, actor);
+    order("history");
+    const lines = [{ variantId: id, qty: 2 }];
+    inventory.reserveForOrder("history", lines, actor, "test");
+    db.prepare(`INSERT INTO courier_submissions (id, order_id, status, next_retry_at, created_at, updated_at)
+      VALUES ('history-sub', 'history', 'submitted', ?, ?, ?)`).run(now, now, now);
+    db.prepare(`INSERT INTO returns (id, submission_id, status, created_at)
+      VALUES ('history-return', 'history-sub', 'received', ?)`).run(now);
+    const inspection = [{ variantId: id, sellableQty: 1, damagedQty: 0 }];
+    const before = balance(id);
+    assert.deepEqual(inventory.getDispatchedVariants("history"), []);
+    assert.throws(() => inventory.receiveReturnLines("history-sub", "history", inspection, actor, "invalid-active"), inventory.InventoryConflictError);
+    assert.deepEqual(balance(id), before);
+    inventory.releaseForOrder("history", actor, "Annulation");
+    inventory.reserveForOrder("history", lines, actor, "test");
+    assert.equal(balance(id).reserved, 0);
+    assert.throws(() => inventory.receiveReturnLines("history-sub", "history", inspection, actor, "invalid-released"), inventory.InventoryConflictError);
+    assert.equal(db.prepare("SELECT status FROM reservations WHERE order_id='history'").get().status, "released");
+    order("consumed-history");
+    inventory.reserveForOrder("consumed-history", lines, actor, "test");
+    inventory.dispatchOrder("consumed-history", actor);
+    inventory.reserveForOrder("consumed-history", lines, actor, "test");
+    assert.deepEqual(balance(id), { physical: 1, reserved: 0, quarantine: 0 });
+    assert.equal(db.prepare("SELECT status FROM reservations WHERE order_id='consumed-history'").get().status, "consumed");
+  });
+
+  test("stock schemas reject price/options selectors, duplicates, fractions, unsafe counts and missing correction snapshots", () => {
+    const valid = batch("validation", "receive", [{ variantId: adjust, qty: 1 }]);
+    for (const qty of [-1, 0, 1.5, Number.MAX_SAFE_INTEGER + 1, Infinity, "2"]) {
+      assert.equal(stockBatchSchema.safeParse({ ...valid, items: [{ variantId: adjust, qty }] }).success, false);
+    }
+    for (const request of [{ ...valid, requestId: " " }, { ...valid, items: [] },
+      { ...valid, items: [...valid.items, ...valid.items] }, { ...valid, mode: "count", reason: "Inventaire" },
+      { ...valid, mode: "count", items: [{ variantId: adjust, qty: 1, expected: balance(adjust) }] },
+      { ...valid, price: 1 }]) assert.equal(stockBatchSchema.safeParse(request).success, false);
+    assert.equal(stockAdjustSchema.safeParse({ variantId: adjust, physicalDelta: 1, reason: "Test", options: [] }).success, false);
+    assert.equal(stockOpeningSchema.safeParse({ items: [{ variantId: adjust, qty: 1 }, { variantId: adjust, qty: 1 }] }).success, false);
+  });
+
+  test("opening batches roll back balances, ledger and receipt on late failure; zero opens exactly once", () => {
+    const a = variant("batch-a"), z = variant("batch-z");
+    inventory.openStock(z, 2, actor);
+    const count = movementCount();
+    assert.throws(() => apply(batch("rollback", "opening", [{ variantId: a, qty: 3 }, { variantId: z, qty: 2 }])), inventory.InventoryConflictError);
+    assert.equal(balance(a), undefined);
+    assert.equal(movementCount(), count);
+    assert.equal(db.prepare("SELECT 1 FROM app_state WHERE key='inventory-batch:rollback'").get(), undefined);
+    const request = batch("rollback", "opening", [{ variantId: a, qty: 0 }]);
+    const result = apply(request);
+    assert.deepEqual(apply(request), result);
+    assert.throws(() => apply({ ...request, requestId: "reopen" }), inventory.InventoryConflictError);
+  });
+
+  test("durable receipts precede current balances; changed mode/reason/membership/snapshot conflict", () => {
+    const a = variant("receipt-a"), b = variant("receipt-b");
+    apply(batch("receipt-open", "opening", [{ variantId: a, qty: 2 }, { variantId: b, qty: 3 }]));
+    const receive = batch("receipt-receive", "receive", [{ variantId: b, qty: 2 }, { variantId: a, qty: 1 }], "Livraison");
+    const result = apply(receive);
+    const count = batch("receipt-count", "count", [{ variantId: a, qty: 8, expected: balance(a) }], "Inventaire");
+    const counted = apply(count);
+    apply(batch("later", "receive", [{ variantId: a, qty: 4 }]));
+    assert.deepEqual(apply({ ...receive, items: [...receive.items].reverse() }), result);
+    assert.deepEqual(apply(count), counted);
+    for (const changed of [{ ...receive, mode: "opening" }, { ...receive, reason: "Autre" },
+      { ...receive, items: receive.items.slice(0, 1) }, { ...count, items: [{ ...count.items[0], expected: balance(a) }] }]) {
+      assert.throws(() => apply(changed), inventory.InventoryConflictError);
+    }
+  });
+
+  test("reception overflow and unknown variants roll back the entire batch", () => {
+    const a = variant("overflow-a"), z = variant("overflow-z");
+    inventory.openStock(z, Number.MAX_SAFE_INTEGER, actor);
+    const count = movementCount();
+    for (const variantId of [z, "zz-missing"]) {
+      assert.throws(() => apply(batch(`invalid-${variantId}`, "receive", [{ variantId: a, qty: 2 }, { variantId, qty: 1 }])), inventory.InventoryValidationError);
+      assert.equal(balance(a), undefined);
+      assert.equal(movementCount(), count);
+    }
+  });
+
+  test("counts preserve reserved/quarantine and reject stale snapshots and floors atomically", () => {
+    const a = variant("floor-a"), z = variant("floor-z");
+    apply(batch("floor-open", "opening", [{ variantId: a, qty: 10 }, { variantId: z, qty: 10 }]));
+    inventory.adjustStock(z, { quarantineDelta: 2 }, "Abîmées", actor, "floor-q");
+    order("floor-order");
+    inventory.reserveForOrder("floor-order", [{ variantId: z, qty: 3 }], actor, "test");
+    const snapshot = balance(z), first = balance(a), count = movementCount();
+    const request = batch("floor-count", "count", [{ variantId: a, qty: 7, expected: first }, { variantId: z, qty: 4, expected: snapshot }], "Comptage");
+    assert.throws(() => apply(request), inventory.InventoryConflictError);
+    assert.deepEqual(balance(a), first);
+    assert.deepEqual(balance(z), snapshot);
+    assert.equal(movementCount(), count);
+    for (const field of ["physical", "reserved", "quarantine"]) {
+      assert.throws(() => apply(batch(`stale-${field}`, "count", [{ variantId: z, qty: 8, expected: { ...snapshot, [field]: snapshot[field] + 1 } }], "Comptage")), inventory.InventoryConflictError);
+    }
+    apply({ ...request, items: [{ variantId: z, qty: 5, expected: snapshot }] });
+    assert.deepEqual(balance(z), { physical: 5, reserved: 3, quarantine: 2 });
+    const noop = batch("noop", "count", [{ variantId: z, qty: 5, expected: balance(z) }], "Vérifié");
+    const result = apply(noop);
+    apply(batch("noop-later", "receive", [{ variantId: z, qty: 2 }]));
+    assert.deepEqual(apply(noop), result);
+  });
+
+  test("two-process counts have one winner; concurrent identical reception retries apply once", async () => {
     const id = variant("count-race");
-    apply(batch("race-opening", "opening", [{ variantId: id, qty: 10 }]));
+    inventory.openStock(id, 10, actor);
     const expected = balance(id);
-    const outcomes = await raceBatches([6, 8].map(qty => batch(`race-count-${qty}`, "count", [{ variantId: id, qty, expected }], "Inventaire")));
-    assert.equal(outcomes.filter(result => result.ok).length, 1);
-    assert.equal(outcomes.find(result => !result.ok).name, "InventoryConflictError");
+    const outcomes = await race([6, 8].map(qty => batch(`race-${qty}`, "count", [{ variantId: id, qty, expected }], "Inventaire")));
+    assert.equal(outcomes.filter(r => r.ok).length, 1);
+    assert.equal(outcomes.find(r => !r.ok).name, "InventoryConflictError");
     const before = balance(id).physical;
-    const receive = batch("race-retry", "receive", [{ variantId: id, qty: 3 }]);
-    const retries = await raceBatches([receive, receive]);
-    assert.equal(retries.every(result => result.ok), true);
+    const request = batch("retry", "receive", [{ variantId: id, qty: 3 }]);
+    const retries = await race([request, request]);
+    assert.equal(retries.every(r => r.ok), true);
     assert.deepEqual(retries[0].result, retries[1].result);
     assert.equal(balance(id).physical, before + 3);
-    assert.deepEqual(apply(receive), retries[0].result); // Parent sees the durable cross-process receipt.
+    assert.deepEqual(apply(request), retries[0].result);
   });
 
-  const productInput = (slug) => ({ slug, name: "Bottines test", category: "bottines", price: 300,
-    description: "Description", story: "Histoire", materials: ["Cuir"], isBestSeller: false,
-    colors: [{ name: "Noir", hex: "#000000", images: [] }, { name: "Crème", hex: "#eeeeee", images: [] }], sizes: [37, 38] });
-
-  test("product initial stock resolves exact color names; omitted stays unopened, zero is opened and retries do not reset stock", () => {
-    const input = { ...productInput("initial-stock"), requestId: "initial-create",
-      initialStock: [{ colorKey: "Noir", size: "37", qty: 4 }, { colorKey: "Crème", size: "38", qty: 0 }] };
-    const product = createProduct(input, { actor: actor.id });
-    assert.equal(product.variants.length, 4);
-    for (const v of product.variants) {
-      const initial = input.initialStock.find(item => item.colorKey === v.colorName && item.size === v.size);
-      assert.deepEqual(balance(v.variantId), { physical: initial?.qty ?? 0, reserved: 0, quarantine: 0 });
-      const movements = inventory.listMovements({ variantId: v.variantId });
-      assert.equal(movements.length, initial ? 1 : 0);
-      if (initial) { assert.equal(movements[0].kind, "opening"); assert.equal(movements[0].actor, actor.id); }
-    }
-    const v = product.variants.find(item => item.colorName === "Noir" && item.size === "37");
-    apply(batch("initial-later", "receive", [{ variantId: v.variantId, qty: 2 }]));
-    updateProduct(product.id, { name: "Nom modifié" });
-    assert.equal(createProduct(input).id, product.id);
-    assert.equal(balance(v.variantId).physical, 6);
+  test("catalog initial stock uses generic options; edits/replays cannot reset it; late failure rolls back catalog and ledger", () => {
+    const input = { ...productInput("initial"), requestId: "initial-create",
+      initialStock: [{ options: [{ name: "Contenance", value: "30 ml" }], qty: 4 }, { options: [{ name: "Contenance", value: "500 ml" }], qty: 0 }] };
+    const created = createProduct(input, { actor });
+    const v = created.variants.find(v => v.options[0].value === "30 ml");
+    apply(batch("initial-later", "receive", [{ variantId: v.id, qty: 2 }]));
+    updateProduct(created.id, { name: "Nom modifié" });
+    assert.equal(createProduct(input).id, created.id);
+    assert.equal(balance(v.id).physical, 6);
     assert.throws(() => createProduct({ ...input, initialStock: [] }), inventory.InventoryConflictError);
-    const empty = createProduct(productInput("initial-omitted"));
-    assert.equal(empty.variants.every(v => inventory.listMovements({ variantId: v.variantId }).length === 0), true);
-  });
-
-  test("invalid initial stock is rejected; late inventory failure rolls back the entire product and creation receipt", () => {
-    for (const initialStock of [
-      [{ colorKey: "noir", size: "37", qty: 2 }], [{ colorKey: "Noir", size: "39", qty: 2 }],
-      [{ colorKey: "Noir", size: "37", qty: "" }], [{ colorKey: "Noir", size: "37", qty: -1 }],
-      [{ colorKey: "Noir", size: "37", qty: Number.MAX_SAFE_INTEGER + 1 }],
-      [{ colorKey: "Noir", size: "37", qty: 1 }, { colorKey: "Noir", size: "37", qty: 0 }],
-    ]) assert.equal(createProductSchema.safeParse({ ...productInput("invalid-initial"), initialStock }).success, false);
-    const input = { ...productInput("initial-rollback"), requestId: "rollback-create",
-      initialStock: [{ colorKey: "Noir", size: "37", qty: 2 }, { colorKey: "Crème", size: "38", qty: 3 }] };
-    const before = movementCount();
-    db.exec(`CREATE TRIGGER reject_test_opening BEFORE INSERT ON stock_movements
-      WHEN NEW.kind='opening' AND NEW.qty=3 BEGIN SELECT RAISE(ABORT, 'test failure'); END`);
-    try { assert.throws(() => createProduct(input), /test failure/); }
+    assert.equal(inventory.listMovements({ variantId: created.variants.find(v => v.options[0].value === "500 ml").id }).length, 1);
+    assert.equal(inventory.listMovements({ variantId: created.variants.find(v => v.options[0].value === "XL").id }).length, 0);
+    const count = movementCount();
+    db.exec(`CREATE TRIGGER reject_test_opening BEFORE INSERT ON stock_movements WHEN NEW.kind='opening' AND NEW.qty=3 BEGIN SELECT RAISE(ABORT, 'test failure'); END`);
+    const rollback = { ...productInput("initial-rollback"), requestId: "rollback-create", initialStock: [
+      { options: [{ name: "Contenance", value: "30 ml" }], qty: 2 }, { options: [{ name: "Contenance", value: "500 ml" }], qty: 3 }] };
+    try { assert.throws(() => createProduct(rollback), /test failure/); }
     finally { db.exec("DROP TRIGGER reject_test_opening"); }
-    assert.equal(getProductById(input.slug), null);
-    assert.equal(db.prepare("SELECT COUNT(*) n FROM variants WHERE product_id=?").get(input.slug).n, 0);
-    assert.equal(db.prepare("SELECT COUNT(*) n FROM product_colors WHERE product_id=?").get(input.slug).n, 0);
+    assert.equal(getProductById("initial-rollback"), null);
+    assert.equal(movementCount(), count);
     assert.equal(db.prepare("SELECT 1 FROM app_state WHERE key='catalog-create:rollback-create'").get(), undefined);
-    assert.equal(movementCount(), before);
-    assert.equal(createProduct(input).variants.find(v => v.colorName === "Crème" && v.size === "38").available, 3);
+    assert.equal(createProduct(rollback).variants.find(v => v.options[0].value === "500 ml").available, 3);
   });
 
-  test("stock and product APIs require admin before reading input and expose retry-safe success and French 400/409 errors", async () => {
-    // Exercise the actual handlers/services/database; replace only session and Next cache infrastructure.
-    const authPath = loadSource.resolve("@/lib/auth-guards");
-    const cachePath = loadSource.resolve("next/cache");
-    const stockPath = loadSource.resolve("@/app/api/crm/stock/batch/route");
-    const productPath = loadSource.resolve("@/app/api/admin/products/route");
-    const previous = new Map([authPath, cachePath, stockPath, productPath].map(key => [key, loadSource.cache[key]]));
-    let role = "admin";
+  test("all stock handlers authenticate before input, enforce strict generic schemas and map French 400/409 errors", async () => {
+    const authPath = loadSource.resolve("@/lib/auth-guards"), cachePath = loadSource.resolve("next/cache");
+    const routePaths = ["batch", "opening", "adjust"].map(name => loadSource.resolve(`@/app/api/crm/stock/${name}/route`));
+    const previous = new Map([authPath, cachePath, ...routePaths].map(key => [key, loadSource.cache[key]]));
+    let role = "admin", failRevalidation = false;
     class AuthGuardError extends Error {
-      constructor(status, message) { super(message); this.status = status; }
+      constructor(status) { super("Accès réservé aux administrateurs."); this.status = status; }
       toResponse() { return Response.json({ error: this.message }, { status: this.status }); }
     }
-    loadSource.cache[authPath] = { exports: {
-      AuthGuardError,
-      requireAdmin: async () => {
-        if (role !== "admin") throw new AuthGuardError(role === "agent" ? 403 : 401, "Accès réservé aux administrateurs.");
-        return { id: actor.id, role };
-      },
-    } };
-    let failRevalidation = false;
-    loadSource.cache[cachePath] = { exports: { revalidatePath() {
-      if (failRevalidation) throw new Error("test cache failure");
+    loadSource.cache[authPath] = { exports: { AuthGuardError, requireAdmin: async () => {
+      if (role !== "admin") throw new AuthGuardError(role ? 403 : 401);
+      return { id: actor };
     } } };
+    loadSource.cache[cachePath] = { exports: { revalidatePath() { if (failRevalidation) throw new Error("cache failure"); } } };
     try {
-      const stockPOST = loadSource(stockPath).POST, productPOST = loadSource(productPath).POST;
+      const [stockPOST, openingPOST, adjustPOST] = routePaths.map(p => loadSource(p).POST);
       for (const denied of ["agent", null]) {
         role = denied;
-        for (const handler of [stockPOST, productPOST]) {
-          const response = await handler({ json() { throw new Error("Auth must run first"); } });
-          assert.equal(response.status, denied ? 403 : 401);
+        for (const handler of [stockPOST, openingPOST, adjustPOST]) {
+          assert.equal((await handler({ json() { throw new Error("Auth must run first"); } })).status, denied ? 403 : 401);
         }
       }
       role = "admin";
-      const request = (body) => new Request("http://localhost/api", { method: "POST", body: JSON.stringify(body) });
-      assert.equal((await stockPOST(new Request("http://localhost/api", { method: "POST", body: "{" }))).status, 400);
+      const request = body => new Request("http://localhost/api", { method: "POST", body: JSON.stringify(body) });
+      for (const handler of [stockPOST, openingPOST, adjustPOST]) {
+        assert.equal((await handler(new Request("http://localhost/api", { method: "POST", body: "{" }))).status, 400);
+      }
       const id = variant("api-stock");
       const opening = batch("api-opening", "opening", [{ variantId: id, qty: 2 }]);
-      const opened = await stockPOST(request(opening));
-      assert.equal(opened.status, 200);
-      const original = await opened.json();
+      const original = await (await stockPOST(request(opening))).json();
       assert.equal((await stockPOST(request(batch("api-receive", "receive", [{ variantId: id, qty: 1 }])))).status, 200);
       assert.deepEqual(await (await stockPOST(request(opening))).json(), original);
+      assert.equal((await openingPOST(request({ variantId: id, qty: 9 }))).status, 409);
+      assert.equal((await openingPOST(request({ variantId: id, qty: 2 }))).status, 200);
       for (const [body, status, french] of [
         [batch("api-invalid", "receive", [{ variantId: id, qty: 0 }]), 400, /Requête de stock invalide/],
         [batch("api-unknown", "receive", [{ variantId: "missing", qty: 1 }]), 400, /Variante introuvable/],
@@ -406,35 +363,20 @@ if (child) {
         assert.equal(response.status, status);
         assert.match((await response.json()).error, french);
       }
-      const productBody = { ...productInput("api-product"), requestId: "api-product-create",
-        initialStock: [{ colorKey: "Noir", size: "37", qty: 2 }] };
-      const created = await productPOST(request(productBody));
-      assert.equal(created.status, 201);
-      const product = (await created.json()).product;
-      assert.equal(product.variants.find(v => v.colorName === "Noir" && v.size === "37").available, 2);
-      const retry = await productPOST(request(productBody));
-      assert.equal(retry.status, 201);
-      assert.equal((await retry.json()).product.id, product.id);
-      assert.equal((await productPOST(request({ ...productBody, name: "Autre" }))).status, 409);
-      assert.equal((await productPOST(request({ ...productInput("!!!") }))).status, 400);
-      assert.equal((await productPOST(request({ ...productBody, requestId: "different-create" }))).status, 409);
-
-      // A failure after the transaction committed must remain uncertain (5xx in Next),
-      // never a definitive 400 that lets the client discard the original request ID.
-      const uncertainBody = { ...productBody, slug: "api-product-uncertain", requestId: "api-product-uncertain-create" };
+      const adjustment = { variantId: id, requestId: "550e8400-e29b-41d4-a716-446655440000", physicalDelta: 1, reason: "Correction" };
+      assert.equal((await adjustPOST(request(adjustment))).status, 200);
+      assert.equal((await adjustPOST(request(adjustment))).status, 200);
+      assert.equal(balance(id).physical, 4);
+      assert.equal((await adjustPOST(request({ ...adjustment, physicalDelta: 2 }))).status, 409);
       failRevalidation = true;
-      await assert.rejects(productPOST(request(uncertainBody)), /test cache failure/);
-      const committed = getProductById(uncertainBody.slug);
-      assert.equal(committed.variants.find(v => v.colorName === "Noir" && v.size === "37").available, 2);
+      const uncertain = batch("api-uncertain", "receive", [{ variantId: id, qty: 2 }]);
+      await assert.rejects(stockPOST(request(uncertain)), /cache failure/);
       failRevalidation = false;
-      const recovered = await productPOST(request(uncertainBody));
-      assert.equal(recovered.status, 201);
-      assert.equal((await recovered.json()).product.id, committed.id);
-      assert.equal(inventory.listMovements({ variantId: committed.variants.find(v => v.colorName === "Noir" && v.size === "37").variantId }).length, 1);
+      assert.equal((await stockPOST(request(uncertain))).status, 200);
+      assert.equal(balance(id).physical, 6);
     } finally {
       for (const [key, value] of previous) {
-        if (value) loadSource.cache[key] = value;
-        else delete loadSource.cache[key];
+        if (value) loadSource.cache[key] = value; else delete loadSource.cache[key];
       }
     }
   });

@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { updateProduct } from "@/lib/services/catalog";
 import { updateProductSchema } from "@/lib/services/catalog-schemas";
+import { InventoryConflictError } from "@/lib/services/inventory-errors";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,9 @@ export async function PUT(
     }
     if (error instanceof Error && error.message === "Produit introuvable.") {
       return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    if (error instanceof InventoryConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
     }
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

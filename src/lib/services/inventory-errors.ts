@@ -2,9 +2,15 @@
  * Error classes for the inventory service (see ./inventory.ts).
  */
 
+import type { VariantOption } from "@/lib/commerce-types";
+
 export interface StockShortage {
   variantId: string;
   sku: string;
+  productId: string;
+  productName: string;
+  label: string;
+  options: VariantOption[];
   requested: number;
   available: number;
 }
@@ -20,7 +26,7 @@ export class InsufficientStockError extends Error {
   constructor(shortages: StockShortage[]) {
     super(
       `Stock insuffisant pour ${shortages.length} variante(s) : ${shortages
-        .map((s) => `${s.sku} (demandé ${s.requested}, disponible ${s.available})`)
+        .map((s) => `${s.productName} — ${s.label} [${s.sku}] (demandé ${s.requested}, disponible ${s.available})`)
         .join(", ")}`,
     );
     this.name = "InsufficientStockError";

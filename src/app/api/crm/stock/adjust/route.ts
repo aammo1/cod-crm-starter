@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
-import { stockAdjustSchema } from "@/lib/api-schemas";
-import { getDb } from "@/lib/db";
-import { InventoryConflictError, adjustStock } from "@/lib/services/inventory";
+import { stockAdjustSchema } from "@/lib/services/inventory-schemas";
+import { InventoryConflictError, InventoryValidationError, adjustStock } from "@/lib/services/inventory";
 
 export const runtime = "nodejs";
 
@@ -30,14 +29,6 @@ export async function POST(
     }
 
     const { variantId, requestId, physicalDelta, quarantineDelta, reason } = parsed.data;
-    const db = getDb();
-    if (!db.prepare("SELECT 1 FROM variants WHERE id = ?").get(variantId)) {
-      return NextResponse.json(
-        { error: `Variante introuvable : ${variantId}` },
-        { status: 400 },
-      );
-    }
-
     const actor = user.name ?? user.email ?? user.id;
     const ref = requestId ? `adj-request:${user.id}:${requestId}` : `adj-${variantId}-${Date.now()}-${nanoid(6)}`;
     try {
@@ -52,7 +43,7 @@ export async function POST(
       if (error instanceof InventoryConflictError) {
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
-      if (error instanceof Error) {
+      if (error instanceof InventoryValidationError) {
         // Service-side validation (physical under reserved/quarantine, etc.).
         return NextResponse.json({ error: error.message }, { status: 400 });
       }

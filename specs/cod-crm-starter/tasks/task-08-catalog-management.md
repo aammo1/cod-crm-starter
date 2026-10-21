@@ -1,7 +1,7 @@
 # Task 08: Build flexible catalog management in the CRM
 
 ## Status
-pending
+complete
 
 ## Wave
 4

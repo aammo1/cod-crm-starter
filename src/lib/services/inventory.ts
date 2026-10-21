@@ -1,5 +1,7 @@
 import { nanoid } from "nanoid";
 import { getDb, type OrderItem } from "@/lib/db";
+import type { CommerceOrderItem, VariantOption } from "@/lib/commerce-types";
+import { variantOptionsKey } from "@/lib/variant-options";
 import {
   InsufficientStockError,
   InventoryConflictError,
@@ -52,11 +54,9 @@ export interface ReserveLine {
   qty: number;
 }
 
-export interface LowStockRow {
-  variantId: string;
-  sku: string;
+export interface LowStockRow extends StockProjection {
+  /** TASK 20 COMPATIBILITY BRIDGE: dashboard expects product ID under `product`. */
   product: string;
-  available: number;
 }
 
 export interface MovementFilter {
@@ -70,7 +70,30 @@ export interface AdjustChange {
   quarantineDelta?: number;
 }
 
-export const DEFAULT_LOCATION = "ZEHRI";
+export const DEFAULT_LOCATION = "MAIN";
+
+export interface StockProjection extends VariantBalance {
+  variantId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  label: string;
+  options: VariantOption[];
+  images: string[];
+  active: boolean;
+  productActive: boolean;
+}
+
+interface VariantRecord {
+  sku: string;
+  product_id: string;
+  product_name: string;
+  label: string;
+  options_json: string;
+  images_json: string;
+  active: number;
+  product_active: number;
+}
 
 interface BalanceRow {
   physical: number;
@@ -105,11 +128,6 @@ interface ProductBalanceRecord {
   reserved: number;
   quarantine: number;
 }
-
-type LowStockRecord = ProductBalanceRecord & {
-  sku: string;
-  product_id: string;
-};
 
 // Prepared once per process, on first use — importing this module (e.g. during
 // `next build` page-data collection) must never open the database (see db.ts).
@@ -170,20 +188,10 @@ function buildStatements() {
     setReservationStatus: db.prepare<{ id: string; status: string; now: string }>(
       "UPDATE reservations SET status = @status, resolved_at = @now WHERE id = @id",
     ),
-    selectVariantSku: db.prepare<{ variantId: string }, { sku: string; product_id: string }>(
-      "SELECT sku, product_id FROM variants WHERE id = @variantId",
-    ),
-    selectLowStock: db.prepare<{ location: string }, LowStockRecord>(
-      // Active variants of active products only; a variant with no balance row
-      // at this location is genuinely out of stock (all zeros).
-      `SELECT v.id AS variant_id, v.sku, v.product_id,
-              COALESCE(b.physical, 0) AS physical,
-              COALESCE(b.reserved, 0) AS reserved,
-              COALESCE(b.quarantine, 0) AS quarantine
-       FROM variants v
-       JOIN products p ON p.id = v.product_id
-       LEFT JOIN stock_balances b ON b.variant_id = v.id AND b.location = @location
-       WHERE v.active = 1 AND p.active = 1`,
+    selectVariantSku: db.prepare<{ variantId: string }, VariantRecord>(
+      `SELECT v.sku, v.product_id, p.name AS product_name, v.label, v.options_json,
+        v.images_json, v.active, p.active AS product_active
+        FROM variants v JOIN products p ON p.id = v.product_id WHERE v.id = @variantId`,
     ),
     selectReturnsBySubmission: db.prepare<{ submissionId: string }, { id: string; status: string; order_id: string }>(
       `SELECT r.id, r.status, cs.order_id FROM returns r
@@ -203,13 +211,9 @@ function buildStatements() {
     selectReservationsByOrder: db.prepare<{ orderId: string }, ReservationRow>(
       "SELECT id, variant_id, qty FROM reservations WHERE order_id = @orderId AND status = 'consumed'",
     ),
-    selectVariantForLine: db.prepare<
-      { productId: string; color: string; size: string },
-      { id: string }
-    >(`SELECT v.id FROM variants v
-       JOIN product_colors c ON c.id = v.color_id
-       WHERE v.product_id = @productId AND c.name = @color AND v.size = @size
-       LIMIT 1`),
+    selectVariantForLine: db.prepare<{ productId: string; optionsKey: string }, { id: string }>(
+      `SELECT id FROM variants WHERE product_id = @productId AND options_key = @optionsKey`,
+    ),
     upsertReturnLine: db.prepare<{
       returnId: string;
       variantId: string;
@@ -282,6 +286,12 @@ function getOrCreateBalance(variantId: string, location: string): BalanceRow {
 }
 
 function writeBalance(variantId: string, location: string, row: BalanceRow): void {
+  if (![row.physical, row.reserved, row.quarantine].every(value => Number.isSafeInteger(value) && value >= 0)) {
+    throw new InventoryValidationError("Quantité de stock invalide ou trop élevée.");
+  }
+  if (row.physical - row.quarantine < row.reserved) {
+    throw new InventoryConflictError("Le stock physique ne peut pas passer sous réservé + quarantaine.");
+  }
   stmts().updateBalance.run({ variantId, location, ...row });
 }
 
@@ -306,8 +316,29 @@ function assertPayloadMatch(
   }
 }
 
-function skuOf(variantId: string): string {
-  return stmts().selectVariantSku.get({ variantId })?.sku ?? variantId;
+function requireVariant(variantId: string): VariantRecord {
+  const variant = stmts().selectVariantSku.get({ variantId });
+  if (!variant) throw new InventoryValidationError(`Variante introuvable : ${variantId}`);
+  return variant;
+}
+
+/** Internal/admin projection. Archived history is opt-in; counts are never public DTOs. */
+export function listStockVariants(filter: { productId?: string; includeInactive?: boolean } = {}): StockProjection[] {
+  const rows = getDb().prepare(`SELECT v.id AS variantId, v.product_id AS productId, v.sku,
+    p.name AS productName, v.label, v.options_json, v.images_json,
+    v.active, p.active AS productActive, COALESCE(b.physical, 0) AS physical,
+    COALESCE(b.reserved, 0) AS reserved, COALESCE(b.quarantine, 0) AS quarantine
+    FROM variants v JOIN products p ON p.id = v.product_id
+    LEFT JOIN stock_balances b ON b.variant_id = v.id AND b.location = @location
+    WHERE (@productId IS NULL OR v.product_id = @productId)
+      AND (@includeInactive = 1 OR (v.active = 1 AND p.active = 1))
+    ORDER BY p.name, p.id, v.id`).all({ location: DEFAULT_LOCATION,
+    productId: filter.productId ?? null, includeInactive: filter.includeInactive ? 1 : 0 }) as
+    Array<Omit<StockProjection, "options" | "images" | "active" | "productActive" | "available"> &
+      { options_json: string; images_json: string; active: number; productActive: number }>;
+  return rows.map(({ options_json, images_json, ...row }) => ({ ...row,
+    options: JSON.parse(options_json) as VariantOption[], images: JSON.parse(images_json) as string[],
+    active: row.active === 1, productActive: row.productActive === 1, available: availableOf(row) }));
 }
 
 export function availableFor(variantId: string, location: string = DEFAULT_LOCATION): number {
@@ -340,7 +371,7 @@ export function openStock(
   opts?: { location?: string; source?: string },
 ): void {
   if (!Number.isSafeInteger(qty) || qty < 0) {
-    throw new Error("openStock: qty doit être un entier >= 0");
+    throw new InventoryValidationError("Ouverture : la quantité doit être un entier positif ou nul.");
   }
   const location = opts?.location ?? DEFAULT_LOCATION;
   const ref = `open:${variantId}:${location}`;
@@ -356,7 +387,12 @@ export function openStock(
       });
       return; // Exact replay — opening already counted.
     }
+    requireVariant(variantId);
     const balance = getOrCreateBalance(variantId, location);
+    const prior = getDb().prepare("SELECT 1 FROM stock_movements WHERE variant_id = ? AND location = ? LIMIT 1").get(variantId, location);
+    if (prior || balance.physical !== 0 || balance.reserved !== 0 || balance.quarantine !== 0) {
+      throw new InventoryConflictError(`Le stock de la variante ${variantId} est déjà ouvert ou mouvementé.`);
+    }
     balance.physical += qty;
     writeBalance(variantId, location, balance);
     insertMovement(
@@ -379,7 +415,21 @@ export function openStock(
 
 /** Catalog variants may exist without an opening count. Only inventory writes balances. */
 export function ensureStockBalance(variantId: string): void {
-  withTransaction(() => { getOrCreateBalance(variantId, DEFAULT_LOCATION); });
+  withTransaction(() => { requireVariant(variantId); getOrCreateBalance(variantId, DEFAULT_LOCATION); });
+}
+
+/** Legacy opening endpoint: atomic, exact per-variant replay only. */
+export function openStockItems(items: Array<{ variantId: string; qty: number }>, actor: string): { created: number; skipped: number } {
+  return getDb().transaction(() => {
+    let created = 0;
+    let skipped = 0;
+    for (const item of items) {
+      const exists = stmts().selectMovementByRef.get({ ref: `open:${item.variantId}:${DEFAULT_LOCATION}` });
+      openStock(item.variantId, item.qty, actor, { source: "crm-stock" });
+      if (exists) skipped++; else created++;
+    }
+    return { created, skipped };
+  }).immediate();
 }
 
 export interface StockBatchResult {
@@ -469,10 +519,12 @@ export function reserveForOrder(
     const pending = new Map<string, number>();
     const totals = new Map<string, number>();
     for (const line of lines) {
-      if (!Number.isInteger(line.qty) || line.qty <= 0) {
-        throw new Error(`reserveForOrder: quantité invalide pour ${line.variantId}`);
+      if (!Number.isSafeInteger(line.qty) || line.qty <= 0) {
+        throw new InventoryValidationError(`Réservation : quantité invalide pour ${line.variantId}`);
       }
-      totals.set(line.variantId, (totals.get(line.variantId) ?? 0) + line.qty);
+      const total = (totals.get(line.variantId) ?? 0) + line.qty;
+      if (!Number.isSafeInteger(total)) throw new InventoryValidationError("Quantité totale trop élevée.");
+      totals.set(line.variantId, total);
     }
     for (const [variantId, qty] of totals) {
       const ref = `res:${orderId}:${variantId}`;
@@ -494,13 +546,21 @@ export function reserveForOrder(
     const balances = new Map<string, BalanceRow>();
     const shortages: StockShortage[] = [];
     for (const [variantId, qty] of pending) {
+      const variant = requireVariant(variantId);
+      if (variant.active !== 1 || variant.product_active !== 1) {
+        throw new InventoryConflictError(`La variante ${variant.sku} (${variant.label}) n’est plus active.`);
+      }
       const balance = getOrCreateBalance(variantId, DEFAULT_LOCATION);
       balances.set(variantId, balance);
       const available = availableOf(balance);
       if (available < qty) {
         shortages.push({
           variantId,
-          sku: skuOf(variantId),
+          sku: variant.sku,
+          productId: variant.product_id,
+          productName: variant.product_name,
+          label: variant.label,
+          options: JSON.parse(variant.options_json) as VariantOption[],
           requested: qty,
           available,
         });
@@ -660,10 +720,10 @@ export interface DispatchedVariant {
 }
 
 /**
- * Single source of truth for "which variants (and how many pairs) left the
+ * Single source of truth for "which variants (and how many units) left the
  * warehouse for this order". Dispatch movements are authoritative; consumed
  * reservations are only a legacy fallback for orders without a movement.
- * Active/released reservations never prove that a pair left the warehouse.
+ * Active/released reservations never prove that a unit left the warehouse.
  */
 export function getDispatchedVariants(orderId: string): DispatchedVariant[] {
   const s = stmts();
@@ -682,16 +742,17 @@ export function getDispatchedVariants(orderId: string): DispatchedVariant[] {
 }
 
 /**
- * A confirmed order line resolves to at most one variant: (product, color,
- * size) is unique in the catalog. No `active` filter — the dispatched variant
- * may have been deactivated since confirmation.
+ * Historical generic snapshots resolve only by stable ID and product ownership.
+ * No active filter: a dispatched variant can have been archived since confirmation.
  */
-export function resolveVariantForLine(item: OrderItem): string | null {
-  const row = stmts().selectVariantForLine.get({
-    productId: item.product_id,
-    color: item.color,
-    size: item.size,
-  });
+export function resolveVariantForLine(item: CommerceOrderItem | OrderItem): string | null {
+  if ("variant_id" in item) {
+    const variant = stmts().selectVariantSku.get({ variantId: item.variant_id });
+    return variant?.product_id === item.product_id ? item.variant_id : null;
+  }
+  // TASK 20 COMPATIBILITY BRIDGE: copied return consumers still use legacy snapshots.
+  const row = stmts().selectVariantForLine.get({ productId: item.product_id,
+    optionsKey: variantOptionsKey([{ name: "Couleur", value: item.color }, { name: "Taille", value: item.size }]) });
   return row?.id ?? null;
 }
 
@@ -713,14 +774,18 @@ export function receiveReturnLines(
   const merged = new Map<string, { sellable: number; damaged: number }>();
   for (const line of lines) {
     if (
-      !Number.isInteger(line.sellableQty) || line.sellableQty < 0 ||
-      !Number.isInteger(line.damagedQty) || line.damagedQty < 0
+       !Number.isSafeInteger(line.sellableQty) || line.sellableQty < 0 ||
+       !Number.isSafeInteger(line.damagedQty) || line.damagedQty < 0
     ) {
-      throw new Error("receiveReturn: quantités invalides");
+      throw new InventoryValidationError("Retour : quantités invalides.");
     }
     const entry = merged.get(line.variantId) ?? { sellable: 0, damaged: 0 };
     entry.sellable += line.sellableQty;
     entry.damaged += line.damagedQty;
+    if (!Number.isSafeInteger(entry.sellable) || !Number.isSafeInteger(entry.damaged) ||
+        !Number.isSafeInteger(entry.sellable + entry.damaged)) {
+      throw new InventoryValidationError("Retour : quantité totale trop élevée.");
+    }
     merged.set(line.variantId, entry);
   }
   const effective = [...merged.entries()].filter(
@@ -758,7 +823,7 @@ export function receiveReturnLines(
       }
       if (q.sellable + q.damaged > max) {
         throw new InventoryConflictError(
-          `receiveReturn: quantité retournée supérieure aux ${max} paire(s) expédiée(s) pour la variante ${variantId}`,
+           `Retour : quantité supérieure aux ${max} unité(s) expédiée(s) pour la variante ${variantId}`,
         );
       }
     }
@@ -873,10 +938,10 @@ export function adjustStock(
   const physicalDelta = change.physicalDelta ?? 0;
   const quarantineDelta = change.quarantineDelta ?? 0;
   if (
-    !Number.isInteger(physicalDelta) || !Number.isInteger(quarantineDelta) ||
+    !Number.isSafeInteger(physicalDelta) || !Number.isSafeInteger(quarantineDelta) ||
     (physicalDelta === 0 && quarantineDelta === 0)
   ) {
-    throw new Error("adjustStock: deltas invalides");
+    throw new InventoryValidationError("Ajustement : deltas invalides");
   }
 
   withTransaction(() => {
@@ -912,19 +977,23 @@ export function adjustStock(
     const applyQuarantine = quarantineDelta !== 0 && !quarExisting;
     if (!applyPhysical && !applyQuarantine) return; // Exact replay — no-op.
 
+    requireVariant(variantId);
     const balance = getOrCreateBalance(variantId, location);
     const newPhysical = applyPhysical ? balance.physical + physicalDelta : balance.physical;
     const newQuarantine = applyQuarantine ? balance.quarantine + quarantineDelta : balance.quarantine;
+    if (!Number.isSafeInteger(newPhysical) || !Number.isSafeInteger(newQuarantine)) {
+      throw new InventoryValidationError("Quantité de stock trop élevée.");
+    }
     if (newPhysical < 0) {
-      throw new Error("adjustStock: le physique ne peut pas devenir négatif");
+      throw new InventoryConflictError("Le stock physique ne peut pas devenir négatif.");
     }
     if (newQuarantine < 0 || newQuarantine > newPhysical) {
-      throw new Error("adjustStock: quarantaine invalide (doit être dans [0, physique])");
+      throw new InventoryConflictError("Quarantaine invalide (doit être dans [0, physique]).");
     }
     // Keep availability non-negative: physical cannot drop below what is
     // already reserved/quarantined — release or adjust quarantine first.
     if (newPhysical - newQuarantine - balance.reserved < 0) {
-      throw new Error("adjustStock: le physique ne peut pas passer sous réservé + quarantaine");
+      throw new InventoryConflictError("Le stock physique ne peut pas passer sous réservé + quarantaine.");
     }
 
     balance.physical = newPhysical;
@@ -970,20 +1039,8 @@ export function adjustStock(
 }
 
 export function lowStock(threshold: number): LowStockRow[] {
-  const rows = stmts().selectLowStock.all({ location: DEFAULT_LOCATION });
-  const result: LowStockRow[] = [];
-  for (const r of rows) {
-    const available = availableOf(r);
-    if (available <= threshold) {
-      result.push({
-        variantId: r.variant_id,
-        sku: r.sku,
-        product: r.product_id,
-        available,
-      });
-    }
-  }
-  return result;
+  return listStockVariants().filter(row => row.available <= threshold)
+    .map(row => ({ ...row, product: row.productId }));
 }
 
 export function listMovements(filter?: MovementFilter): MovementRow[] {

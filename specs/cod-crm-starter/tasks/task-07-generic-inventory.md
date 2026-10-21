@@ -1,7 +1,7 @@
 # Task 07: Generalize inventory lookups and stock input
 
 ## Status
-pending
+complete
 
 ## Wave
 4

@@ -4,13 +4,32 @@ export const stockQuantitySchema = z.number({ required_error: "Quantité requise
   .int("La quantité doit être un entier.").min(0, "La quantité doit être positive ou nulle.")
   .max(Number.MAX_SAFE_INTEGER, "Quantité trop élevée.");
 export const stockRequestIdSchema = z.string().trim().min(1, "Identifiant de requête requis.").max(128, "Identifiant de requête trop long.");
+export const stockVariantIdSchema = z.string().trim().min(1, "Variante requise.").max(200);
+const openingItemSchema = z.object({ variantId: stockVariantIdSchema, qty: stockQuantitySchema }).strict();
+export const stockOpeningSchema = z.union([
+  openingItemSchema,
+  z.object({ items: z.array(openingItemSchema).min(1).max(500) }).strict(),
+]).superRefine((data, ctx) => {
+  const items = "items" in data ? data.items : [data];
+  if (new Set(items.map(item => item.variantId)).size !== items.length) {
+    ctx.addIssue({ code: "custom", message: "Variante en double." });
+  }
+});
+export const stockAdjustSchema = z.object({
+  variantId: stockVariantIdSchema,
+  requestId: z.string().uuid("Identifiant de requête invalide.").optional(),
+  physicalDelta: z.number().int().safe().optional(),
+  quarantineDelta: z.number().int().safe().optional(),
+  reason: z.string().trim().min(1, "Motif requis.").max(500),
+}).strict().refine(data => (data.physicalDelta ?? 0) !== 0 || (data.quarantineDelta ?? 0) !== 0,
+  "Indiquez au moins un delta (physique ou quarantaine).");
 
 export const stockBatchSchema = z.object({
   requestId: stockRequestIdSchema,
   mode: z.enum(["opening", "receive", "count"]),
   reason: z.string().trim().min(1).max(500).optional(),
   items: z.array(z.object({
-    variantId: z.string().trim().min(1).max(64),
+    variantId: stockVariantIdSchema,
     qty: stockQuantitySchema,
     expected: z.object({
       physical: stockQuantitySchema,

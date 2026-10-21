@@ -1,7 +1,7 @@
 # Task 09: Expose the authenticated published catalog API
 
 ## Status
-pending
+complete
 
 ## Wave
 4

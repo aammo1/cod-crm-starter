@@ -88,9 +88,9 @@ Task 05 implements against the shared typed catalog port, with final runtime bin
 - [x] [task-05-order-persistence](./tasks/task-05-order-persistence.md) — Checkout persistence and durable upsells
 - [x] [task-06-integration-auth](./tasks/task-06-integration-auth.md) — Authenticated server-to-server boundary
 ### Wave 4
-- [ ] [task-07-generic-inventory](./tasks/task-07-generic-inventory.md) — Variant-based stock
-- [ ] [task-08-catalog-management](./tasks/task-08-catalog-management.md) — Product management UI and routes
-- [ ] [task-09-catalog-api](./tasks/task-09-catalog-api.md) — Published catalog endpoints
+- [x] [task-07-generic-inventory](./tasks/task-07-generic-inventory.md) — Variant-based stock
+- [x] [task-08-catalog-management](./tasks/task-08-catalog-management.md) — Product management UI and routes
+- [x] [task-09-catalog-api](./tasks/task-09-catalog-api.md) — Published catalog endpoints
 ### Wave 5
 - [ ] [task-10-order-operations](./tasks/task-10-order-operations.md) — Confirmation, manual orders, and edits
 - [ ] [task-11-order-api](./tasks/task-11-order-api.md) — Idempotent checkout and upsell endpoints

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
-import { stockBatchSchema } from "@/lib/api-schemas";
+import { stockBatchSchema } from "@/lib/services/inventory-schemas";
 import { applyStockBatch, InventoryConflictError, InventoryValidationError } from "@/lib/services/inventory";
 
 export const runtime = "nodejs";

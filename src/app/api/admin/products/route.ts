@@ -5,7 +5,8 @@ import { ZodError } from "zod";
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { createProduct } from "@/lib/services/catalog";
 import { createProductSchema } from "@/lib/services/catalog-schemas";
-import { InventoryConflictError, InventoryValidationError } from "@/lib/services/inventory";
+import { InventoryConflictError, InventoryValidationError } from "@/lib/services/inventory-errors";
+import { validateVariantCombinations } from "@/lib/variant-options";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,19 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     const body: unknown = await request.json().catch(() => null);
     const parsed = createProductSchema.parse(body);
+    if (parsed.variants) {
+      try {
+        let generatedPrefix = "AUTO";
+        while (parsed.variants.some(variant => variant.sku?.startsWith(generatedPrefix))) generatedPrefix += "X";
+        validateVariantCombinations(parsed.variants.map((variant, index) => ({
+          ...variant,
+          id: variant.id ?? `new-${index}`,
+          sku: variant.sku ?? `${generatedPrefix}-${index}`,
+        })), parsed.optionDefinitions ?? []);
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Variantes invalides." }, { status: 400 });
+      }
+    }
     const product = createProduct(parsed, { actor: user.id });
     revalidatePath("/", "layout");
     return NextResponse.json({ product }, { status: 201 });
