@@ -15,7 +15,7 @@ import type {
 } from "./provider";
 
 const DEFAULT_BASE_URL = "https://api.ozonexpress.ma";
-// Host spelling per docs/ozon-api.md §7 — note the documented "ozoneexpress"
+// Inherited PDF host spelling — note "ozoneexpress"; live verification remains required.
 // client host vs "ozonexpress" API host discrepancy (§2); not yet verified.
 const PDF_BASE_URL = "https://client.ozoneexpress.ma";
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -220,7 +220,7 @@ function extractOzonError(body: unknown): string | null {
   return null;
 }
 
-// Cities response schema is unverified (docs/ozon-api.md §6) — parse
+// Cities response schema is unverified (docs/operations.md) — parse
 // defensively: an array of objects with an id-ish and a name-ish field.
 const CITY_ID_KEYS = new Set(["id", "cityid", "city_id", "citycode", "city_code", "code"]);
 const CITY_NAME_KEYS = new Set(["name", "cityname", "city_name", "city", "ville", "nom", "label"]);
@@ -278,7 +278,7 @@ function extractCities(body: unknown, creds: OzonCredentials): City[] | null {
   return cities;
 }
 
-// Tracking response schema is unverified (docs/ozon-api.md §5) — accept the
+// Tracking response schema is unverified (docs/operations.md) — accept the
 // common shapes without interpreting any status meaning.
 const TRACKING_CODE_KEYS = new Set(["trackingnumber"]);
 const TRACKING_STATUS_KEYS = new Set(["status", "statut"]);
@@ -376,7 +376,7 @@ function buildParcelFields(input: CreateParcelInput): Record<string, string> {
   if (!normalized) {
     throw new ProviderError("permanent", "Téléphone destinataire invalide");
   }
-  // Local 06XXXXXXXX format per docs/ozon-api.md §3 (accepted formats unverified, §9.15).
+  // Inherited local 06XXXXXXXX format; accepted formats need owner verification.
   const localPhone = `0${normalized.slice(4)}`;
 
   const fields: Record<string, string> = {
@@ -401,7 +401,7 @@ function buildParcelFields(input: CreateParcelInput): Record<string, string> {
   if (input.products && input.products.length > 0) {
     fields.products = JSON.stringify(input.products);
   }
-  // Custom codes stay OFF by default: semantics unverified (docs/ozon-api.md §9.5).
+  // Custom codes stay OFF by default: semantics unverified (docs/operations.md).
   if (process.env.OZON_USE_CUSTOM_TRACKING === "1") {
     const customCode = input.customTrackingCode?.trim();
     if (!customCode) {

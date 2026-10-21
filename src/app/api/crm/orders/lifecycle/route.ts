@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { z } from "@/lib/validation";
 import { AuthGuardError, requireUser } from "@/lib/auth-guards";
 import { changeOrderLifecycle, OrderLifecycleError } from "@/lib/services/order-lifecycle";
 

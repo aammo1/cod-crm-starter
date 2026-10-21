@@ -108,7 +108,7 @@ export function trackMeta(name: "PageView" | "ViewContent" | "AddToCart" | "Init
 export function trackMetaPurchase(purchase?: MetaPurchase | null) {
   try {
     if (!purchase || !initPixel()) return;
-    const key = `zehri-purchase:${purchase.eventId}`;
+    const key = `crm-purchase:${purchase.eventId}`;
     if (sessionStorage.getItem(key)) return;
     window.fbq?.("track", "Purchase", purchase.params, { eventID: purchase.eventId });
     sessionStorage.setItem(key, "1");

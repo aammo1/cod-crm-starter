@@ -1,4 +1,5 @@
-import { getDb, type OrderItem } from "@/lib/db";
+import { getDb } from "@/lib/db";
+import type { CommerceOrderItem as OrderItem } from "@/lib/commerce-types";
 import { formatCasablanca, summarizeItems } from "@/lib/services/orders";
 import {
   dispatchOrder,

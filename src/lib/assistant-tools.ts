@@ -1,5 +1,5 @@
 import { tool } from "ai";
-import { z } from "zod";
+import { z } from "./validation";
 import type { AssistantSource } from "@/lib/assistant-contract";
 import { TRACKING_STATUSES } from "@/lib/shipping/status-map";
 import {

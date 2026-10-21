@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation";
 import { nameSchema, phoneSchema } from "@/lib/phone";
 
 export const MANUAL_ORDER_SOURCES = [

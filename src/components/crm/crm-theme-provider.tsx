@@ -11,8 +11,8 @@ interface CrmThemeContextValue {
 
 const CrmThemeContext = React.createContext<CrmThemeContextValue | null>(null);
 
-const STORAGE_KEY = "zehri-crm-theme";
-const THEME_CHANGE_EVENT = "zehri:crm-theme-change";
+const STORAGE_KEY = "crm-theme";
+const THEME_CHANGE_EVENT = "crm:theme-change";
 
 function getSystemTheme(): CrmTheme {
   if (typeof window === "undefined") return "light";

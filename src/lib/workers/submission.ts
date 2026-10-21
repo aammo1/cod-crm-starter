@@ -116,13 +116,13 @@ async function processOne(provider: DeliveryProvider, id: string): Promise<void>
  * two drains never race over the same batch.
  */
 export async function drainSubmissions(provider: DeliveryProvider): Promise<void> {
-  const g = globalThis as { __zehriSubmissionDraining?: boolean };
-  if (g.__zehriSubmissionDraining) return;
-  g.__zehriSubmissionDraining = true;
+  const g = globalThis as { __crmSubmissionDraining?: boolean };
+  if (g.__crmSubmissionDraining) return;
+  g.__crmSubmissionDraining = true;
   try {
     await drain(provider);
   } finally {
-    g.__zehriSubmissionDraining = false;
+    g.__crmSubmissionDraining = false;
   }
 }
 
@@ -149,8 +149,8 @@ function heartbeat(): void {
 }
 
 export function startSubmissionWorker(): void {
-  const g = globalThis as { __zehriSubmissionWorker?: NodeJS.Timeout };
-  if (g.__zehriSubmissionWorker) return;
+  const g = globalThis as { __crmSubmissionWorker?: NodeJS.Timeout };
+  if (g.__crmSubmissionWorker) return;
 
   if (process.env.DELIVERY_PROVIDER === "mock") {
     console.log("[submission] MOCK provider actif — aucun appel réel à Ozon");
@@ -167,5 +167,5 @@ export function startSubmissionWorker(): void {
     });
   };
   void tick();
-  g.__zehriSubmissionWorker = setInterval(tick, intervalMs());
+  g.__crmSubmissionWorker = setInterval(tick, intervalMs());
 }

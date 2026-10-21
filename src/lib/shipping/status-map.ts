@@ -2,7 +2,7 @@
  * Normalized tracking status vocabulary (task-14).
  *
  * The raw → key mappings are INTENTIONALLY EMPTY: Ozon's tracking response
- * schema and status strings are unverified (docs/ozon-api.md §5, §9 item 1)
+ * schema and status strings are unverified (docs/operations.md, activation Ozon)
  * and live verification is PENDING owner authorization. No status meaning may
  * be invented — every raw value normalizes to "unknown" until the exact raw
  * strings are observed live and recorded here.

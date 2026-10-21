@@ -17,7 +17,8 @@ const realFetch = globalThis.fetch;
 const httpCalls = [];
 globalThis.fetch = async (url) => { httpCalls.push(String(url)); throw new Error("network disabled in test"); };
 
-const { createOrder, getDb } = loadSource("@/lib/db");
+const { getDb } = loadSource("@/lib/db");
+import { createOrder } from "./fulfillment-fixtures.mjs";
 const { confirmOrder } = loadSource("@/lib/services/confirmation");
 const { openStock } = loadSource("@/lib/services/inventory");
 const { createOrResumeBl } = loadSource("@/lib/services/delivery-notes");

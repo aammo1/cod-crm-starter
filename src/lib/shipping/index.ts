@@ -13,8 +13,8 @@ type MockProvider = ReturnType<typeof createMockProvider>;
  */
 export function getProvider(): DeliveryProvider {
   if (process.env.DELIVERY_PROVIDER === "mock") {
-    const g = globalThis as { __zehriMockProvider?: MockProvider };
-    return (g.__zehriMockProvider ??= createMockProvider());
+    const g = globalThis as { __crmMockProvider?: MockProvider };
+    return (g.__crmMockProvider ??= createMockProvider());
   }
   return createOzonProvider();
 }

@@ -1,7 +1,6 @@
 import { nanoid } from "nanoid";
-import { getDb, type OrderItem } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import type { CommerceOrderItem, VariantOption } from "@/lib/commerce-types";
-import { variantOptionsKey } from "@/lib/variant-options";
 import {
   InsufficientStockError,
   InventoryConflictError,
@@ -54,10 +53,7 @@ export interface ReserveLine {
   qty: number;
 }
 
-export interface LowStockRow extends StockProjection {
-  /** TASK 20 COMPATIBILITY BRIDGE: dashboard expects product ID under `product`. */
-  product: string;
-}
+export type LowStockRow = StockProjection;
 
 export interface MovementFilter {
   variantId?: string;
@@ -210,9 +206,6 @@ function buildStatements() {
         WHERE id = @id`),
     selectReservationsByOrder: db.prepare<{ orderId: string }, ReservationRow>(
       "SELECT id, variant_id, qty FROM reservations WHERE order_id = @orderId AND status = 'consumed'",
-    ),
-    selectVariantForLine: db.prepare<{ productId: string; optionsKey: string }, { id: string }>(
-      `SELECT id FROM variants WHERE product_id = @productId AND options_key = @optionsKey`,
     ),
     upsertReturnLine: db.prepare<{
       returnId: string;
@@ -745,15 +738,9 @@ export function getDispatchedVariants(orderId: string): DispatchedVariant[] {
  * Historical generic snapshots resolve only by stable ID and product ownership.
  * No active filter: a dispatched variant can have been archived since confirmation.
  */
-export function resolveVariantForLine(item: CommerceOrderItem | OrderItem): string | null {
-  if ("variant_id" in item) {
-    const variant = stmts().selectVariantSku.get({ variantId: item.variant_id });
-    return variant?.product_id === item.product_id ? item.variant_id : null;
-  }
-  // TASK 20 COMPATIBILITY BRIDGE: copied return consumers still use legacy snapshots.
-  const row = stmts().selectVariantForLine.get({ productId: item.product_id,
-    optionsKey: variantOptionsKey([{ name: "Couleur", value: item.color }, { name: "Taille", value: item.size }]) });
-  return row?.id ?? null;
+export function resolveVariantForLine(item: Pick<CommerceOrderItem, "product_id" | "variant_id">): string | null {
+  const variant = stmts().selectVariantSku.get({ variantId: item.variant_id });
+  return variant?.product_id === item.product_id ? item.variant_id : null;
 }
 
 /**
@@ -1039,8 +1026,7 @@ export function adjustStock(
 }
 
 export function lowStock(threshold: number): LowStockRow[] {
-  return listStockVariants().filter(row => row.available <= threshold)
-    .map(row => ({ ...row, product: row.productId }));
+  return listStockVariants().filter(row => row.available <= threshold);
 }
 
 export function listMovements(filter?: MovementFilter): MovementRow[] {

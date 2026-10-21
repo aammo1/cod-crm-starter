@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { z } from "zod";
+import { z } from "./validation";
 import { normalizeMaPhone } from "@/lib/phone";
 
 const variantId = z.string().trim().min(1).max(200);

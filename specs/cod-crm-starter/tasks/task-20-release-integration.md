@@ -1,7 +1,7 @@
 # Task 20: Complete the fresh-install release integration
 
 ## Status
-pending
+complete
 
 ## Wave
 8

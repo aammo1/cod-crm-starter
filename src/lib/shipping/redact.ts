@@ -1,5 +1,5 @@
 // Ozon credentials (client id + API key) live inside the URL path
-// (/customers/{ID}/{KEY}/{operation}) — see docs/ozon-api.md §2. They must
+// (/customers/{ID}/{KEY}/{operation}) — see docs/operations.md. They must
 // never reach logs, thrown errors or browser bundles: anything that may carry
 // an Ozon URL passes through redactUrl()/redactText() first.
 

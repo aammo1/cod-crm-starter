@@ -6,7 +6,7 @@ import { create } from "zustand";
 import type { AssistantPageContext } from "@/lib/assistant-contract";
 
 type Selection = Pick<AssistantPageContext, "productId" | "blId" | "selectedParcelIds" | "selectionCount">;
-export const ASSISTANT_OPEN_EVENT = "zehri:assistant-open";
+export const ASSISTANT_OPEN_EVENT = "crm:assistant-open";
 
 export const useAssistantContextStore = create<{
   entries: Record<string, { pathname: string; selection: Selection }>;

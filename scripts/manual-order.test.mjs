@@ -8,11 +8,12 @@ import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadSource } from "./test-source.mjs";
 
-const childAction = process.env.ZEHRI_MANUAL_TEST_ACTION;
+const childAction = process.env.CRM_MANUAL_TEST_ACTION;
 const tempDir = childAction
   ? null
-  : fs.mkdtempSync(path.join(os.tmpdir(), "zehri-manual-order-test-"));
+  : fs.mkdtempSync(path.join(os.tmpdir(), "crm-manual-order-test-"));
 if (tempDir) process.env.DB_PATH = path.join(tempDir, "test.db");
+process.env.DELIVERY_PROVIDER = "mock";
 
 const { getDb } = loadSource("@/lib/db");
 const { createManualOrder, ManualOrderError } =
@@ -55,28 +56,21 @@ if (childAction) {
   db.prepare(`INSERT INTO cities (id, name, updated_at) VALUES (2, 'Rabat', ?)`).run(now);
 
   db.prepare(`INSERT INTO products (id, slug, name, category, price, active, created_at, updated_at)
-    VALUES ('prod-boots', 'prod-boots', 'Bottines Zehri', 'bottines', 350, 1, ?, ?)`).run(now, now);
-  db.prepare(`INSERT INTO product_colors (id, product_id, name)
-    VALUES ('color-black', 'prod-boots', 'Noir')`).run();
-  db.prepare(`INSERT INTO variants (id, product_id, color_id, size, sku, active)
-    VALUES ('var-38', 'prod-boots', 'color-black', '38', 'SKU-38', 1)`).run();
-  db.prepare(`INSERT INTO variants (id, product_id, color_id, size, sku, active)
-    VALUES ('var-39', 'prod-boots', 'color-black', '39', 'SKU-39', 1)`).run();
-  db.prepare(`INSERT INTO variants (id, product_id, color_id, size, sku, active)
-    VALUES ('var-inactive', 'prod-boots', 'color-black', '40', 'SKU-40', 0)`).run();
+    VALUES ('prod-boots', 'prod-boots', 'Sérum test', 'soins', 350, 1, ?, ?)`).run(now, now);
+  for (const [id, value, sku, active] of [["var-38", "250 ml", "SKU-38", 1], ["var-39", "500 ml", "SKU-39", 1], ["var-inactive", "1 l", "SKU-40", 0]]) {
+    db.prepare(`INSERT INTO variants (id, product_id, sku, label, options_json, options_key, active)
+      VALUES (?, 'prod-boots', ?, ?, ?, ?, ?)`).run(id, sku, value, JSON.stringify([{ name: "Volume", value }]), JSON.stringify([["volume", value]]), active);
+  }
 
   db.prepare(`INSERT INTO products (id, slug, name, category, price, active, created_at, updated_at)
-    VALUES ('prod-inactive', 'prod-inactive', 'Produit Inactif', 'bottines', 200, 0, ?, ?)`).run(now, now);
-  db.prepare(`INSERT INTO product_colors (id, product_id, name)
-    VALUES ('color-inactive', 'prod-inactive', 'Bleu')`).run();
-  db.prepare(`INSERT INTO variants (id, product_id, color_id, size, sku, active)
-    VALUES ('var-inactive-prod', 'prod-inactive', 'color-inactive', '38', 'SKU-INACT', 1)`).run();
+    VALUES ('prod-inactive', 'prod-inactive', 'Produit Inactif', 'objets', 200, 0, ?, ?)`).run(now, now);
+  db.prepare(`INSERT INTO variants (id, product_id, sku, label, options_json, options_key, active)
+    VALUES ('var-inactive-prod', 'prod-inactive', 'SKU-INACT', 'Standard', '[]', '[]', 1)`).run();
 
   // Ensure balance for inventory confirmation later
-  db.prepare(`INSERT OR IGNORE INTO stock_balances (variant_id, location, physical, reserved, quarantine)
-    VALUES ('var-38', 'ZEHRI', 10, 0, 0)`).run();
-  db.prepare(`INSERT OR IGNORE INTO stock_balances (variant_id, location, physical, reserved, quarantine)
-    VALUES ('var-39', 'ZEHRI', 10, 0, 0)`).run();
+  const { openStock } = loadSource("@/lib/services/inventory");
+  openStock("var-38", 10, "test");
+  openStock("var-39", 10, "test");
 
   test("valid authenticated request creates manual order with correct attribution and totals", () => {
     const requestId = crypto.randomUUID();
@@ -121,9 +115,8 @@ if (childAction) {
     assert.equal(items.length, 1);
     assert.deepEqual(items[0], {
       product_id: "prod-boots",
-      name: "Bottines Zehri",
-      color: "Noir",
-      size: "38",
+      variant_id: "var-38", sku: "SKU-38", name: "Sérum test",
+      variant_label: "250 ml", options: [{ name: "Volume", value: "250 ml" }],
       quantity: 1,
       unit_price: 350,
       line_total: 350,
@@ -430,7 +423,7 @@ if (childAction) {
         const child = fork(currentFile, [], {
           env: {
             ...process.env,
-            ZEHRI_MANUAL_TEST_ACTION: "create",
+            CRM_MANUAL_TEST_ACTION: "create",
           },
         });
         child.on("message", (msg) => {

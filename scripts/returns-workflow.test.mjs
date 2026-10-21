@@ -14,7 +14,8 @@ process.env.OZON_CLIENT_ID = "";
 process.env.OZON_API_KEY = "";
 globalThis.fetch = async () => { throw new Error("HTTP disabled in isolated fulfillment tests"); };
 
-const { createOrder, getDb } = loadSource("@/lib/db");
+const { getDb } = loadSource("@/lib/db");
+import { createOrder } from "./fulfillment-fixtures.mjs";
 const inventory = loadSource("@/lib/services/inventory");
 const { ensureReturn, markReturnReceived } = loadSource("@/lib/services/returns");
 const { openStock, reserveForOrder, dispatchOrder, receiveReturnLines, getDispatchedVariants } = inventory;

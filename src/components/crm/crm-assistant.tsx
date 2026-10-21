@@ -173,7 +173,7 @@ export function CrmAssistant() {
             <div className="flex min-w-0 items-center gap-3">
               <AssistantRobot mood={robotMood} className="size-16" />
               <div className="flex min-w-0 flex-col gap-1">
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Zehri · Unité CRM</p>
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Assistant · Unité CRM</p>
                 <SheetTitle>Z-800, à ton service.</SheetTitle>
                 <p className="text-xs text-muted-foreground">{busy ? "Processeur occupé. Blagues en attente." : robotMood === "grumpy" ? "Humeur : boulons légèrement serrés." : "Du métal. Des vannes. Des priorités."}</p>
               </div>

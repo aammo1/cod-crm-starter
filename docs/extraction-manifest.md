@@ -1,4 +1,9 @@
-# Task 01 — isolated extraction manifest
+# Extraction manifest — provenance and release integration
+
+The original task-01 inventory below is historical extraction evidence. The
+task-20 reconciliation at the end supersedes its transitional ownership notes
+and unverified-regression entries. Current verification and the exact task-20
+file manifest are in [release-verification.md](release-verification.md).
 
 ## Boundaries and provenance
 
@@ -180,3 +185,57 @@ Suites below were retained, not claimed as verified in task 01:
 
 The feature spec copy remains pending and byte-identical to source; task status
 tracking belongs to the orchestrator.
+
+## Task 20 — final serial reconciliation
+
+- Generic catalog/options/stable variant IDs and SKUs are authoritative. Runtime
+  no longer reads/writes `product_colors`, `color_id`, size projections or numeric
+  size parsers. Applied migrations remain untouched; nullable historical schema
+  columns/tables are inert lineage, not an accepted runtime request contract.
+- Removed unused presentation adapters `src/lib/products-server.ts`, `types.ts`,
+  `categories.ts`, `slug.ts`; removed catalog color/size inputs, stock selectors,
+  projections, `variantFor`, default-price constants and unused default-rule edit
+  totals. Pricing callers now supply explicit current or captured rules, including
+  the retained optional upper-funnel Meta endpoint.
+- Removed legacy database `OrderItem`/`OrderRow`/offer types, old `createOrder`,
+  `resolveUpsell`, mapping/statements and their synthetic color/size snapshots.
+  Tracking/inspection use `getCrmOrder`; operational snapshot types use
+  `CommerceOrderItem`. Fulfillment fixture insertion is explicitly test-only.
+  Return identity resolves strictly by variant ID and product ownership, including
+  archived variants. No color/size fallback remains.
+- Retained: CRM dashboard/team/settings; generic catalog/media and stock workspace;
+  manual/website orders, attribution, edits/history, archive/restore; durable v1
+  receipts/HMAC order tokens/offers; confirmation/reservations/submission worker;
+  BL claims, uncertain-outcome reconciliation, PDF/handoff; tracking, returns,
+  inspection/quarantine/ledger; backup/admin CLI; optional assistant/catalog-agent
+  and Meta outbox. All operational race/crash assertions remain enabled.
+- Optional `/api/pixel` is retained bounded upper-funnel ingestion, disabled without
+  Meta configuration. It is not a checkout or Purchase bypass and has no CRM
+  browser Pixel mount. Public `/api/orders` and its old upsell route are absent;
+  website checkout is authenticated v1 only.
+- Runtime source branding, theme/event/worker singleton names, WhatsApp defaults,
+  team metadata and mock PDF title are generic. Courier comments/policy now point
+  to the starter operations guide instead of omitted source documentation.
+- French validation defaults are shared across browser/server schemas; explicit
+  precise schema messages keep precedence. Generic invalid types and legacy
+  catalog fields are exercised over the built HTTP boundary.
+- Dashboard and standalone manual-order fixtures are generic. Manual stock setup
+  now uses inventory; its nine cases are included in `test:crm` (121 cases total).
+  The old opt-in e2e harness is now isolated, ephemeral and runnable, retaining
+  theme/mobile navigation, BL archive, team controls and permission assertions.
+  The removed shop is not needed by any retained command. Client/proxy verification
+  runs separately from the CRM build.
+- New release checks cover the assembled host standalone, copied-public-tree
+  offline installation/build, public artifact allowlist and loopback-only real
+  networking. Test DB/media/backups live in temporary directories and are cleaned.
+- Public tree contains code/docs/specs, empty `public/.gitkeep`, and only the three
+  previously allowlisted local font binaries. Existing ignored `data/` and build/
+  dependency artifacts are excluded; no source env, data, media or Git history is
+  copied. This repository's seven existing wave commits are starter-local history.
+- Docker Compose configuration is validated with disposable placeholders. No
+  container build/run, Alpine/musl native execution or UID/volume ownership claim
+  is made: daemon permission was previously denied and was not escalated. Host
+  standalone native SQLite/sharp, persistence/restart and backup evidence is
+  reported separately.
+- No commit, push, publication, GitHub/template change, spec-status change, source
+  application edit or global-skill synchronization was performed in task 20.

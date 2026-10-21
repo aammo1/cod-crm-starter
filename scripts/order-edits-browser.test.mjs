@@ -16,8 +16,9 @@ test("mobile agent operates default, non-size and two-axis variants with history
   const temp = mkdtempSync(path.join(os.tmpdir(), "crm-order-browser-"));
   Object.assign(process.env, { DB_PATH: path.join(temp, "test.db"), UPLOAD_DIR: path.join(temp, "uploads"),
     AUTH_SECRET: randomUUID() + randomUUID(), DELIVERY_PROVIDER: "mock", OZON_CLIENT_ID: "", OZON_API_KEY: "",
-    FACEBOOK_PIXEL_ID: "", FACEBOOK_ACCESS_TOKEN: "", CRM_ASSISTANT_API_KEY: "", CATALOG_AGENT_KEY: "", STOREFRONT_API_KEY: "" });
-  const { getDb, getOrder } = loadSource("@/lib/db");
+    FACEBOOK_PIXEL_ID: "", FACEBOOK_ACCESS_TOKEN: "", OPENROUTER_API_KEY: "", CATALOG_AGENT_KEY: "", STOREFRONT_API_KEY: "" });
+  const { getDb } = loadSource("@/lib/db");
+  const { getCrmOrder: getOrder } = loadSource("@/lib/services/orders");
   const { openStock, availableFor } = loadSource("@/lib/services/inventory");
   const { listOrderEdits, getOrderEditState } = loadSource("@/lib/services/order-edits");
   const { updateStoreSettings } = loadSource("@/lib/services/store-settings");
@@ -55,6 +56,7 @@ test("mobile agent operates default, non-size and two-axis variants with history
     assert.ok(ready, output);
     browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined });
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await page.context().route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     page.setDefaultTimeout(15_000);
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));

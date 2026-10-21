@@ -6,8 +6,8 @@ import { TeamWorkspace } from "@/components/crm/team-workspace";
 export const runtime = "nodejs";
 
 export const metadata: Metadata = {
-  title: "Équipe · CRM Zehri",
-  description: "Gestion des comptes agents de l'équipe Zehri.",
+  title: "Équipe · CRM",
+  description: "Gestion des comptes agents de votre équipe.",
   robots: {
     index: false,
     follow: false,

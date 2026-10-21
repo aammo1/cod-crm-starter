@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { z } from "zod";
+import { z } from "@/lib/validation";
 import { getDb } from "@/lib/db";
 import { redactText } from "@/lib/shipping/redact";
 import { insertContact } from "@/lib/services/orders";

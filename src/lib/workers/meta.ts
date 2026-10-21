@@ -3,8 +3,8 @@ import { setAppState } from "@/lib/services/app-state";
 
 export function startMetaWorker() {
   if (!metaEnabled()) return;
-  const global = globalThis as { __zehriMetaWorker?: NodeJS.Timeout };
-  if (global.__zehriMetaWorker) return;
+  const global = globalThis as { __crmMetaWorker?: NodeJS.Timeout };
+  if (global.__crmMetaWorker) return;
   let running = false;
   const run = async () => {
     if (running) return;
@@ -16,6 +16,6 @@ export function startMetaWorker() {
     catch { console.error("[meta] conversion worker failed; will retry"); }
     finally { running = false; }
   };
-  global.__zehriMetaWorker = setInterval(() => void run(), 5000);
+  global.__crmMetaWorker = setInterval(() => void run(), 5000);
   void run();
 }

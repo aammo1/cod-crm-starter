@@ -16,9 +16,9 @@ envoyée » de « requête peut-être reçue par Ozon ». Par conséquent :
 
 ## `declaredValueMad`
 
-Laissé non défini : les totaux des commandes Zehri sont < 5000 MAD. Si un jour
+Laissé non défini : aucune formule de majoration n’est vérifiée. Si un jour
 nécessaire, la décision documentée est d'utiliser le plancher `parcel-declared-value = 50`
-(docs/ozon-api.md) — ne pas inventer d'autre formule.
+(docs/operations.md, activation Ozon) — ne pas inventer d'autre formule.
 
 ## Format téléphone
 

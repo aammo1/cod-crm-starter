@@ -13,16 +13,16 @@ export interface WaTemplateVars {
 
 export const WA_TEMPLATES: Record<WaTemplateKey, string> = {
   confirmation:
-    "Bonjour {nom} 👋\n\nMerci pour votre commande chez Zehri !\n\nVotre commande :\n{produits}\n\nTotal à payer à la livraison : {total}\n\nPour l'expédier rapidement, pouvez-vous nous confirmer votre adresse de livraison et votre ville ?\n\nMerci pour votre confiance 💛\n— L'équipe Zehri",
+    "Bonjour {nom} 👋\n\nMerci pour votre commande !\n\nVotre commande :\n{produits}\n\nTotal à payer à la livraison : {total}\n\nPour l'expédier rapidement, pouvez-vous nous confirmer votre adresse de livraison et votre ville ?\n\nMerci pour votre confiance 💛\n— Votre boutique",
   rappel:
-    "Bonjour {nom} 👋\n\nNous avons essayé de vous joindre au sujet de votre commande {produits} ({total}).\n\nQuand serait-il plus pratique de vous rappeler ?\n\n— L'équipe Zehri",
+    "Bonjour {nom} 👋\n\nNous avons essayé de vous joindre au sujet de votre commande {produits} ({total}).\n\nQuand serait-il plus pratique de vous rappeler ?\n\n— Votre boutique",
   expedition:
-    "Bonjour {nom} 👋\n\nBonne nouvelle : votre commande {produits} a été expédiée 📦\n\nNuméro de suivi : {suivi}\n\nLa livraison prend 24 à 48h et le livreur vous appellera avant d'arriver.\n\n— L'équipe Zehri",
+    "Bonjour {nom} 👋\n\nBonne nouvelle : votre commande {produits} a été expédiée 📦\n\nNuméro de suivi : {suivi}\n\nLa livraison prend 24 à 48h et le livreur vous appellera avant d'arriver.\n\n— Votre boutique",
 };
 
 // Expedition variant used while no tracking number exists yet.
 export const WA_TEMPLATES_EXPEDITION_SANS_SUIVI =
-  "Bonjour {nom} 👋\n\nBonne nouvelle : votre commande {produits} a été expédiée 📦\n\nLa livraison prend 24 à 48h et le livreur vous appellera avant d'arriver.\n\n— L'équipe Zehri";
+  "Bonjour {nom} 👋\n\nBonne nouvelle : votre commande {produits} a été expédiée 📦\n\nLa livraison prend 24 à 48h et le livreur vous appellera avant d'arriver.\n\n— Votre boutique";
 
 function fillTemplate(template: string, vars: WaTemplateVars): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string) => {

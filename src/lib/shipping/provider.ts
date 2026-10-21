@@ -14,9 +14,9 @@ export interface CreateParcelInput {
   declaredValueMad?: number;
   note?: string;
   nature?: string;
-  /** 1 = Ozon stock, 0 = ramassage — this CRM sends 0 (docs/ozon-api.md §10). */
+  /** 1 = Ozon stock, 0 = ramassage — this CRM sends 0 (docs/operations.md). */
   stock: 0 | 1;
-  /** 1 = opening allowed, 2 = not allowed — NOT a 0/1 boolean (docs/ozon-api.md §3). */
+  /** 1 = opening allowed, 2 = not allowed — NOT a 0/1 boolean (docs/operations.md). */
   open?: 1 | 2;
   fragile?: 0 | 1;
   replace?: 0 | 1;

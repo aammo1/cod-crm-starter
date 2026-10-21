@@ -17,6 +17,12 @@ secrets. No shared multi-tenant state or automatic template updates.
 - `npm run test:bootstrap`, `npm run test:crm`, `npm run test:catalog-agent`,
   `npm run test:security`, `npm run test:meta`, `npm run test:assistant`
 - `node --test examples/nextjs/verify.test.mjs` — typed client and public Next proxy
+- Release integration: `npm run test:integration` (built host standalone, system
+  Chromium), `npm run test:release-tree`, `npm run test:fresh-install` (offline
+  install/build of intended public files), `npm run test:e2e-crm` (team/theme/nav).
+  Browser override: `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium`.
+  For verification, preload `scripts/block-external-network.mjs` through
+  `NODE_OPTIONS=--import=<absolute-path>`; permits only loopback real sockets.
 - `node scripts/create-user.mjs <email> <password> <name> <admin|agent>` — explicit
   create/update, 12–128 character password; existing email reactivates and bumps
   session version. Run from repo root, scripts do not load `.env.local`.

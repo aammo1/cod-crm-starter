@@ -27,7 +27,7 @@ function pdfEscape(text: string): string {
  */
 function placeholderPdf(ref: string): Uint8Array {
   const content = [
-    "BT /F1 16 Tf 56 796 Td (Zehri - Bon de livraison) Tj ET",
+    "BT /F1 16 Tf 56 796 Td (Bon de livraison - Mode test) Tj ET",
     `BT /F1 12 Tf 56 768 Td (Ref : ${pdfEscape(ref)}) Tj ET`,
     "BT /F1 10 Tf 56 744 Td (Mode test - aucune generation reelle chez le transporteur.) Tj ET",
   ].join("\n");
@@ -110,7 +110,7 @@ export async function GET(
       });
     }
 
-    // The PDF auth model is unverified (docs/ozon-api.md §7/§9): a 200 carrying
+    // The PDF auth model is unverified (docs/operations.md, Ozon): a 200 carrying
     // an HTML login page must not be streamed to the user as a PDF.
     const contentType = (upstream.headers.get("content-type") ?? "").toLowerCase();
     if (contentType !== "" && !contentType.includes("pdf")) {

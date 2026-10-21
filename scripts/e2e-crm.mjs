@@ -1,9 +1,24 @@
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { once } from "node:events";
+import { createServer } from "node:net";
 import { chromium } from "playwright";
-import Database from "better-sqlite3";
+import { loadSource } from "./test-source.mjs";
 
-const PORT = 3005;
+const temp = mkdtempSync("/tmp/opencode/crm-e2e-");
+const listener = createServer();
+await new Promise(resolve => listener.listen(0, "127.0.0.1", resolve));
+const PORT = listener.address().port;
+await new Promise(resolve => listener.close(resolve));
 const BASE_URL = `http://localhost:${PORT}`;
+const password = randomUUID();
+const agentPassword = randomUUID();
+const newAgentPassword = randomUUID();
+Object.assign(process.env, { DB_PATH: `${temp}/crm.db`, UPLOAD_DIR: `${temp}/uploads`,
+  AUTH_SECRET: randomUUID() + randomUUID(), AUTH_TRUST_HOST: "true", AUTH_URL: BASE_URL,
+  SECURITY_ALLOWED_ORIGINS: BASE_URL, DELIVERY_PROVIDER: "mock", OZON_CLIENT_ID: "", OZON_API_KEY: "",
+  FACEBOOK_PIXEL_ID: "", FACEBOOK_ACCESS_TOKEN: "", OPENROUTER_API_KEY: "", CATALOG_AGENT_KEY: "", STOREFRONT_API_KEY: "" });
 
 function createTestOrder(db) {
   const id = `ord_test_${Date.now()}`;
@@ -15,16 +30,12 @@ function createTestOrder(db) {
       created_at, updated_at, confirmation_status, source
     ) VALUES (
       ?, 'Khadija Alami', '0612345678',
-      '[{"variantId":"var_1","name":"Escarpin Noir","color":"Noir","size":"38","quantity":1,"price":450}]',
+      '[{"product_id":"fixture","variant_id":"fixture-standard","sku":"FIXTURE","name":"Adaptateur","variant_label":"Standard","options":[],"quantity":1,"unit_price":450,"line_total":450}]',
       450, 0, 450, 'MAD',
-      ?, ?, 'pending', 'funnel'
+      ?, ?, 'new', 'storefront'
     )
   `).run(id, now, now);
   return id;
-}
-
-function cleanupTestAgents(db) {
-  db.prepare(`DELETE FROM users WHERE email LIKE '%fatima%' OR email LIKE '%test-agent%'`).run();
 }
 
 async function waitServerReady(url, maxRetries = 40) {
@@ -41,15 +52,16 @@ async function waitServerReady(url, maxRetries = 40) {
 }
 
 async function run() {
+  const db = loadSource("@/lib/db").getDb();
+  for (const [email, role] of [["admin@example.test", "admin"], ["agent@example.test", "agent"]]) {
+    execFileSync(process.execPath, ["scripts/create-user.mjs", email, password, role, role], { env: process.env });
+  }
+  const testOrderId = createTestOrder(db);
   console.log("Starting Next.js production server on port", PORT);
-  const server = spawn("npm", ["run", "start", "--", "-p", String(PORT)], {
+  const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-p", String(PORT)], {
     stdio: "inherit",
     env: { ...process.env, PORT: String(PORT), NODE_ENV: "production" },
   });
-
-  const db = new Database(process.env.DB_PATH || "./data/crm.db");
-  cleanupTestAgents(db);
-  const testOrderId = createTestOrder(db);
 
   let browser;
   try {
@@ -65,12 +77,14 @@ async function run() {
     const context = await browser.newContext({
       viewport: { width: 1280, height: 800 },
     });
+    const localOnly = route => new URL(route.request().url()).origin === BASE_URL ? route.continue() : route.abort();
+    await context.route("**/*", localOnly);
     const page = await context.newPage();
 
     console.log("\n--- TEST 1: Admin Login ---");
     await page.goto(`${BASE_URL}/login`);
-    await page.fill('input[name="email"]', "admin@zehri.ma");
-    await page.fill('input[name="password"]', "AdminPassword123!");
+    await page.fill('input[name="email"]', "admin@example.test");
+    await page.fill('input[name="password"]', password);
     await page.click('button[type="submit"]');
     await page.waitForURL(`${BASE_URL}/crm`);
     console.log("✓ Admin logged in and redirected to /crm");
@@ -89,7 +103,7 @@ async function run() {
     console.log("Toggled theme:", toggledTheme);
     if (toggledTheme === initialTheme) throw new Error("Theme did not toggle");
 
-    const storedTheme = await page.evaluate(() => localStorage.getItem("zehri-crm-theme"));
+    const storedTheme = await page.evaluate(() => localStorage.getItem("crm-theme"));
     if (storedTheme !== toggledTheme) throw new Error(`Stored theme ${storedTheme} mismatch with ${toggledTheme}`);
     console.log("✓ Stored theme in localStorage:", storedTheme);
 
@@ -108,7 +122,7 @@ async function run() {
     if (sidebarVisible) throw new Error("Desktop sidebar should be hidden on mobile");
 
     // Compact header should be visible
-    const mobileHeader = page.locator("header").filter({ hasText: "Zehri CRM" });
+    const mobileHeader = page.locator("header").filter({ hasText: "COD CRM" });
     if (!(await mobileHeader.isVisible())) throw new Error("Mobile header not visible");
     console.log("✓ Compact mobile header is visible");
 
@@ -185,12 +199,12 @@ async function run() {
     await page.waitForTimeout(200);
     const createModal = page.getByRole("dialog");
     await createModal.locator('input[name="name"]').fill("Fatima Zahra");
-    await createModal.locator('input[name="email"]').fill("fatima.zahra@zehri.ma");
-    await createModal.locator('input[name="password"]').fill("FatimaPassword123!");
+    await createModal.locator('input[name="email"]').fill("fatima@example.test");
+    await createModal.locator('input[name="password"]').fill(agentPassword);
     await createModal.getByRole("button", { name: "Créer l'agent" }).click();
     await page.waitForTimeout(500);
 
-    const agentRow = page.locator("tr").filter({ hasText: "fatima.zahra@zehri.ma" });
+    const agentRow = page.locator("tr").filter({ hasText: "fatima@example.test" });
     await agentRow.waitFor({ state: "visible", timeout: 5000 });
     console.log("✓ Agent Fatima Zahra created and listed in table with status Actif");
 
@@ -199,8 +213,8 @@ async function run() {
     await page.waitForTimeout(200);
     const dupModal = page.getByRole("dialog");
     await dupModal.locator('input[name="name"]').fill("Fatima Clone");
-    await dupModal.locator('input[name="email"]').fill("fatima.zahra@zehri.ma");
-    await dupModal.locator('input[name="password"]').fill("FatimaPassword123!");
+    await dupModal.locator('input[name="email"]').fill("fatima@example.test");
+    await dupModal.locator('input[name="password"]').fill(agentPassword);
     await dupModal.getByRole("button", { name: "Créer l'agent" }).click();
     await page.waitForTimeout(500);
 
@@ -225,7 +239,7 @@ async function run() {
     // Reset password
     await renamedRow.getByRole("button", { name: /Réinitialiser le mot de passe/i }).click();
     const passModal = page.getByRole("dialog");
-    await passModal.locator('input[name="password"]').fill("NewFatimaPass123!");
+    await passModal.locator('input[name="password"]').fill(newAgentPassword);
     await passModal.getByRole("button", { name: "Réinitialiser le mot de passe" }).click();
     await page.waitForTimeout(500);
     console.log("✓ Agent password successfully reset");
@@ -239,10 +253,11 @@ async function run() {
 
     // Verify deactivated agent cannot login
     const agentContext = await browser.newContext();
+    await agentContext.route("**/*", localOnly);
     const agentPage = await agentContext.newPage();
     await agentPage.goto(`${BASE_URL}/login`);
-    await agentPage.fill('input[name="email"]', "fatima.zahra@zehri.ma");
-    await agentPage.fill('input[name="password"]', "NewFatimaPass123!");
+    await agentPage.fill('input[name="email"]', "fatima@example.test");
+    await agentPage.fill('input[name="password"]', newAgentPassword);
     await agentPage.click('button[type="submit"]');
     await agentPage.waitForTimeout(500);
 
@@ -261,10 +276,11 @@ async function run() {
 
     console.log("\n--- TEST 6: Agent Permissions & Route Protection ---");
     const agentCtx = await browser.newContext();
+    await agentCtx.route("**/*", localOnly);
     const agPage = await agentCtx.newPage();
     await agPage.goto(`${BASE_URL}/login`);
-    await agPage.fill('input[name="email"]', "agent@zehri.ma");
-    await agPage.fill('input[name="password"]', "AgentPassword123!");
+    await agPage.fill('input[name="email"]', "agent@example.test");
+    await agPage.fill('input[name="password"]', password);
     await agPage.click('button[type="submit"]');
     await agPage.waitForURL(`${BASE_URL}/crm`);
     console.log("✓ Standard agent logged in");
@@ -300,9 +316,11 @@ async function run() {
     console.log("==========================================\n");
   } finally {
     if (browser) await browser.close();
+    const stopped = once(server, "exit");
     server.kill();
-    cleanupTestAgents(db);
+    await stopped;
     db.close();
+    rmSync(temp, { recursive: true, force: true });
   }
 }
 

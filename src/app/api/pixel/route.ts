@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { z } from "@/lib/validation";
 import { metaContextSchema } from "@/lib/meta-shared";
 import { enqueueMeta, metaEnabled, requestMetaContext } from "@/lib/services/meta";
 import { listStorefront } from "@/lib/services/catalog";
 import { shippingFor } from "@/lib/pricing";
+import { getStoreSettings } from "@/lib/services/store-settings";
 import { readLimitedJson, RequestBodyError } from "@/lib/request-body";
 import { publicRequestBudget } from "@/lib/services/security-budgets";
 
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
     custom = {
       content_ids: [...new Set(contents.map((item) => item.id))], contents,
       ...(name === "ViewContent" ? { content_name: products.get(contents[0].id)!.name } : {}),
-      content_type: "product", currency: "MAD", value: subtotal + (name === "InitiateCheckout" ? shippingFor(subtotal) : 0),
+      content_type: "product", currency: "MAD", value: subtotal + (name === "InitiateCheckout" ? shippingFor(subtotal, getStoreSettings()) : 0),
       num_items: contents.reduce((sum, item) => sum + item.quantity, 0),
     };
   }

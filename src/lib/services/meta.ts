@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
-import { getDb, type OrderItem } from "@/lib/db";
+import { getDb } from "@/lib/db";
+import type { CommerceOrderItem as OrderItem } from "@/lib/commerce-types";
 import { metaContextSchema, type MetaPurchase } from "@/lib/meta-shared";
 
 export function metaEnabled() {

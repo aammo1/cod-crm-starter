@@ -27,9 +27,9 @@ async function refreshCitiesLoop(): Promise<void> {
 
 /** Idempotent workers entrypoint — extended by tasks 09/14 (submission, tracking). */
 export function startWorkers(): void {
-  const g = globalThis as { __zehriWorkersStarted?: boolean };
-  if (g.__zehriWorkersStarted) return;
-  g.__zehriWorkersStarted = true;
+  const g = globalThis as { __crmWorkersStarted?: boolean };
+  if (g.__crmWorkersStarted) return;
+  g.__crmWorkersStarted = true;
   startSubmissionWorker();
   startTrackingWorker();
   startMetaWorker();
@@ -39,13 +39,13 @@ export function startWorkers(): void {
 /** Which worker timers are registered in this process (consumed by /api/health). */
 export function workerHealth(): { submission: { enabled: boolean }; tracking: { enabled: boolean }; meta: { enabled: boolean } } {
   const g = globalThis as {
-    __zehriSubmissionWorker?: NodeJS.Timeout;
-    __zehriTrackingWorker?: NodeJS.Timeout;
-    __zehriMetaWorker?: NodeJS.Timeout;
+    __crmSubmissionWorker?: NodeJS.Timeout;
+    __crmTrackingWorker?: NodeJS.Timeout;
+    __crmMetaWorker?: NodeJS.Timeout;
   };
   return {
-    submission: { enabled: !!g.__zehriSubmissionWorker },
-    tracking: { enabled: !!g.__zehriTrackingWorker },
-    meta: { enabled: !!g.__zehriMetaWorker },
+    submission: { enabled: !!g.__crmSubmissionWorker },
+    tracking: { enabled: !!g.__crmTrackingWorker },
+    meta: { enabled: !!g.__crmMetaWorker },
   };
 }

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation";
 
 export const assistantPageSchema = z.object({
   pathname: z.string().max(200).regex(/^\/crm(?:\/[a-zA-Z0-9_%:-]+)*$/),

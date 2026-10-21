@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { AuthGuardError, requireUser } from "@/lib/auth-guards";
 import { inspectReturnSchema } from "@/lib/api-schemas";
-import { getDb, getOrder, type OrderItem } from "@/lib/db";
+import { getDb } from "@/lib/db";
+import { getCrmOrder as getOrder } from "@/lib/services/orders";
+import type { CommerceOrderItem as OrderItem } from "@/lib/commerce-types";
 import {
   getDispatchedVariants,
   InventoryConflictError,
@@ -118,13 +120,13 @@ export async function POST(
           if (!variantId || !dispatched.has(variantId)) {
             throw new ReturnInspectError(
               409,
-              `${item.name} (${item.color} / ${item.size}) ne correspond à aucune variante expédiée — inspection manuelle requise.`,
+              `${item.name} (${item.variant_label}) ne correspond à aucune variante expédiée — inspection manuelle requise.`,
             );
           }
           if (line.sellable + line.damaged > item.quantity) {
             throw new ReturnInspectError(
               400,
-              `Quantités trop élevées pour ${item.name} (${item.quantity} paire(s) commandée(s)).`,
+              `Quantités trop élevées pour ${item.name} (${item.quantity} unité(s) commandée(s)).`,
             );
           }
           const entry = perVariant.get(variantId) ?? {
@@ -144,7 +146,7 @@ export async function POST(
         if (totals.sellable + totals.damaged === 0) {
           throw new ReturnInspectError(
             400,
-            "Indiquez au moins une paire vendable ou endommagée.",
+            "Indiquez au moins une unité vendable ou endommagée.",
           );
         }
 

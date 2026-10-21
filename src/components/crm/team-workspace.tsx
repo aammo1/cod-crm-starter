@@ -415,7 +415,7 @@ export function TeamWorkspace({ initialAgents }: { initialAgents: TeamAgent[] })
                 autoComplete="email"
                 required
                 maxLength={254}
-                placeholder="Ex. sarah@zehri.ma"
+                placeholder="Ex. sarah@example.com"
                 value={createEmail}
                 onChange={(e) => setCreateEmail(e.target.value)}
                 className={fieldClassName}

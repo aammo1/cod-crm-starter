@@ -35,6 +35,7 @@ test("production mock startup creates an empty isolated CRM and protects operati
       DB_PATH: dbPath,
       UPLOAD_DIR: path.join(temp, "uploads"),
       DELIVERY_PROVIDER: "mock",
+      NODE_OPTIONS: `--import=${path.join(root, "scripts/block-external-network.mjs")}`,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

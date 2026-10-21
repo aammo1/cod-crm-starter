@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
-import { getDb, getOrder } from "@/lib/db";
+import { getDb } from "@/lib/db";
+import { getCrmOrder as getOrder } from "./orders";
 import { getProvider } from "@/lib/shipping";
 import { ProviderError } from "@/lib/shipping/errors";
 import type { DeliveryProvider } from "@/lib/shipping/provider";
@@ -72,7 +73,7 @@ export function getTrackingHealth(now: Date = new Date()): TrackingHealth {
 }
 
 // --- Defensive payload helpers (the tracking response schema is unverified,
-// docs/ozon-api.md §5 — nothing here may throw on unexpected shapes).
+// docs/operations.md — nothing here may throw on unexpected shapes).
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

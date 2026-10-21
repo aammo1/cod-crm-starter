@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@/lib/validation";
 import { contentTypeForStoredName, isSafeStoredName } from "@/lib/uploads";
 import { validateOptionDefinitions, validateVariantOptions, validateVariantSku } from "@/lib/variant-options";
 import { stockQuantitySchema, stockRequestIdSchema } from "./inventory-schemas";
@@ -32,12 +32,6 @@ export const variantInputSchema = z.object({
   label: text(500).optional(), options: optionsSchema, images: imagesSchema.optional(), active: z.boolean().optional(),
 }).strict();
 
-// TASK 20 COMPATIBILITY BRIDGE: copied admin/catalog-agent callers still send a
-// color matrix. Only this boundary converts legacy numbers to strings; generic
-// option values are always strings and never parsed as shoe sizes.
-export const colorInputSchema = z.object({ name: text(80), hex: z.string().regex(/^#[0-9a-fA-F]{6}$/), images: imagesSchema });
-const legacySizeSchema = z.union([text(120), z.number().int().safe()]);
-
 export const productBaseSchema = z.object({
   name: text(200),
   slug: z.string().trim().max(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug invalide.").optional(),
@@ -47,16 +41,11 @@ export const productBaseSchema = z.object({
   isBestSeller: z.boolean().default(false), upsellRef: text(200).nullable().optional(),
   images: imagesSchema.optional(), optionDefinitions: definitionsSchema.optional(),
   variants: z.array(variantInputSchema).min(1).max(100).optional(),
-  // TASK 20 COMPATIBILITY BRIDGE.
-  colors: z.array(colorInputSchema.strict()).min(1).max(100).optional(),
-  sizes: z.array(legacySizeSchema).min(1).max(100).optional(),
 });
 const initialStockSchema = z.union([
   z.object({ options: optionsSchema, qty: stockQuantitySchema }).strict(),
   z.object({ sku: text(100), qty: stockQuantitySchema }).strict(),
   z.object({ variantId: text(200), qty: stockQuantitySchema }).strict(),
-  // TASK 20 COMPATIBILITY BRIDGE.
-  z.object({ colorKey: text(80), size: text(120), qty: stockQuantitySchema }).strict(),
 ]);
 export const createProductSchema = productBaseSchema.extend({
   requestId: stockRequestIdSchema.optional(), initialStock: z.array(initialStockSchema).max(100).optional(),

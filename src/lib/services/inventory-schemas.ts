@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@/lib/validation";
 
 export const stockQuantitySchema = z.number({ required_error: "Quantité requise.", invalid_type_error: "Quantité invalide." })
   .int("La quantité doit être un entier.").min(0, "La quantité doit être positive ou nulle.")

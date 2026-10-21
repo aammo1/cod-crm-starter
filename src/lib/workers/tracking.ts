@@ -10,21 +10,21 @@ import { TRACKING_LAST_TICK_KEY, setAppState } from "@/lib/services/app-state";
  */
 export function startTrackingWorker(): void {
   const g = globalThis as {
-    __zehriTrackingWorker?: NodeJS.Timeout;
-    __zehriTrackingRunning?: boolean;
+    __crmTrackingWorker?: NodeJS.Timeout;
+    __crmTrackingRunning?: boolean;
   };
-  if (g.__zehriTrackingWorker) return;
+  if (g.__crmTrackingWorker) return;
 
   if (process.env.DELIVERY_PROVIDER === "mock") {
     console.log("[tracking] MOCK provider actif — aucun appel réel à Ozon");
   }
 
   const tick = async (): Promise<void> => {
-    if (g.__zehriTrackingRunning) {
+    if (g.__crmTrackingRunning) {
       console.warn("[tracking] sondage précédent encore en cours — tick ignoré");
       return;
     }
-    g.__zehriTrackingRunning = true;
+    g.__crmTrackingRunning = true;
     try {
       // /api/health liveness signal — a failed write must never break the poll.
       try {
@@ -38,10 +38,10 @@ export function startTrackingWorker(): void {
         `[tracking] échec du sondage : ${redactText(err instanceof Error ? err.message : String(err))}`,
       );
     } finally {
-      g.__zehriTrackingRunning = false;
+      g.__crmTrackingRunning = false;
     }
   };
 
   void tick();
-  g.__zehriTrackingWorker = setInterval(() => void tick(), pollIntervalMs());
+  g.__crmTrackingWorker = setInterval(() => void tick(), pollIntervalMs());
 }

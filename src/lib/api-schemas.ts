@@ -1,38 +1,4 @@
-import { z } from "zod";
-import { nameSchema, phoneSchema } from "./phone";
-import { metaContextSchema } from "./meta-shared";
-
-export const createOrderSchema = z.object({
-  // Invalid/blocked attribution must not reject an otherwise valid order.
-  meta: metaContextSchema.optional().catch(undefined),
-  customer: z.object({ name: nameSchema, phone: phoneSchema }),
-  items: z
-    .array(
-      z.object({
-        productId: z.string().min(1).max(128),
-        color: z.string().min(1).max(100),
-        size: z.string().min(1).max(32),
-        qty: z.number().int().min(1).max(10),
-      })
-    )
-    .min(1, "Panier vide")
-    .max(50, "Panier trop volumineux")
-    .superRefine((items, ctx) => {
-      const quantities = new Map<string, number>();
-      for (const line of items) {
-        const key = JSON.stringify([line.productId, line.color, line.size]);
-        const quantity = (quantities.get(key) ?? 0) + line.qty;
-        quantities.set(key, quantity);
-        if (quantity > 10) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "10 articles maximum par variante" });
-          break;
-        }
-      }
-    }),
-});
-
-export const upsellActionSchema = z.object({ action: z.enum(["accept", "decline"]) });
-
+import { z } from "./validation";
 // --- CRM
 
 export const crmOrderListQuerySchema = z.object({

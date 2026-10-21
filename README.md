@@ -1,5 +1,8 @@
 # COD CRM Starter
 
+Vérification de l’assemblage et limites constatées :
+[`docs/release-verification.md`](docs/release-verification.md).
+
 CRM **sans storefront** pour boutiques marocaines en paiement à la livraison :
 catalogue et variantes génériques, stock, commandes, équipe, confirmation,
 expéditions/BL, suivi, retours et paramètres. Interface en français, prix MAD

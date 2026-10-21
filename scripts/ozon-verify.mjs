@@ -2,7 +2,7 @@
 // Ozon Express — read-only live verification (task-14).
 //
 // ⚠️  NE PAS EXÉCUTER sans l'autorisation explicite du propriétaire
-// (specs/zehri-crm-ozon/action-required.md). Ce script effectue de VRAIS
+// (docs/operations.md, activation Ozon). Ce script effectue de VRAIS
 // appels réseau vers l'API Ozon. Il est volontairement gardé derrière le
 // drapeau --yes et la présence des identifiants dans l'environnement.
 //
@@ -15,7 +15,7 @@
 //   OZON_CLIENT_ID=... OZON_API_KEY=... node scripts/ozon-verify.mjs --yes
 //   OZON_CLIENT_ID=... OZON_API_KEY=... node scripts/ozon-verify.mjs --yes --code OZE123456789
 //
-// Sortie: corps JSON bruts observés — à recopier dans docs/ozon-api.md §5/§6
+// Sortie: corps JSON bruts observés — conserver hors du dépôt public, expurgés
 // après vérification. Les identifiants ne sont JAMAIS affichés.
 
 import fs from "node:fs";
@@ -140,7 +140,7 @@ async function main() {
     console.log("\n(code réel non fourni — étape tracking/parcel-info réelle ignorée)");
   }
 
-  console.log("\n=== Fin — recopier les observations dans docs/ozon-api.md (§5/§6) puis remplir STATUS_MAP ===");
+  console.log("\n=== Fin — conserver les observations expurgées hors du dépôt et vérifier STATUS_MAP (docs/operations.md) ===");
 }
 
 main().catch((err) => {

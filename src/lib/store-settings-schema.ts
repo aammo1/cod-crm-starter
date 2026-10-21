@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./validation";
 
 /** Fixed v1 invariants, not editable settings or environment credentials. */
 export const STORE_CURRENCY = "MAD" as const;

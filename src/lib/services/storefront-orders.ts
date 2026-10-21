@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
-import { z } from "zod";
+import { z } from "@/lib/validation";
 import type Database from "better-sqlite3";
 import type {
   CommerceProduct, CommerceVariant, CommerceOrderItem, CommerceTotals,

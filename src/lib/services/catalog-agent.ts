@@ -1,7 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { z } from "zod";
+import { z } from "@/lib/validation";
 import { getDb } from "@/lib/db";
 import { catalogAgentKey, CatalogAgentError } from "@/lib/catalog-agent-auth";
 import { contentTypeForStoredName, getUploadDir, isSafeStoredName } from "@/lib/uploads";
@@ -17,7 +17,7 @@ import { stockQuantitySchema } from "./inventory-schemas";
 const requestIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,128}$/);
 const clientVariantKey = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
 // Reuse admin validation; keys are a creation-only transport identity, never a DB ID.
-const createData = createProductSchema.omit({ colors: true, sizes: true, requestId: true, initialStock: true, variants: true }).extend({
+const createData = createProductSchema.omit({ requestId: true, initialStock: true, variants: true }).extend({
   variants: z.array(variantInputSchema.omit({ id: true }).extend({ key: clientVariantKey })).min(1).max(100).optional(),
   initialStock: z.array(z.object({ variantKey: clientVariantKey, qty: stockQuantitySchema }).strict()).max(100).optional(),
 }).superRefine((data, ctx) => {
@@ -32,7 +32,7 @@ const createData = createProductSchema.omit({ colors: true, sizes: true, request
     opened.add(item.variantKey);
   }
 });
-const editData = updateProductSchema.omit({ colors: true, sizes: true }).superRefine((data, ctx) => {
+const editData = updateProductSchema.superRefine((data, ctx) => {
   if (!Object.keys(data).length) ctx.addIssue({ code: "custom", message: "Aucune modification fournie." });
 });
 export const catalogOperationSchema = z.discriminatedUnion("command", [

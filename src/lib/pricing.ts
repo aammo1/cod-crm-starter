@@ -1,9 +1,4 @@
-import { DEFAULT_STORE_SETTINGS, type StoreSettings } from "@/lib/store-settings-schema";
-
-/** Compatibility defaults for copied callers; new business paths pass snapshots. */
-export const SHIPPING_FEE = DEFAULT_STORE_SETTINGS.shippingFeeMad;
-export const FREE_SHIPPING_THRESHOLD = DEFAULT_STORE_SETTINGS.freeShippingThresholdMad;
-export const UPSELL_DISCOUNT = (100 - DEFAULT_STORE_SETTINGS.upsellDiscountPercent) / 100;
+import type { StoreSettings } from "@/lib/store-settings-schema";
 
 export type ShippingRules = Readonly<Pick<StoreSettings, "shippingFeeMad" | "freeShippingThresholdMad">>;
 export type UpsellPricingRules = Readonly<Pick<StoreSettings, "upsellDiscountPercent">>;
@@ -17,7 +12,7 @@ function assertMadAmount(value: number): void {
 /** Use checkout's persisted rules when resolving an existing order's upsell. */
 export function shippingFor(
   subtotal: number,
-  rules: ShippingRules = DEFAULT_STORE_SETTINGS,
+  rules: ShippingRules,
 ): number {
   assertMadAmount(subtotal);
   assertMadAmount(rules.shippingFeeMad);
@@ -28,7 +23,7 @@ export function shippingFor(
 /** Call only when creating an enabled offer; persist the result, do not reprice it. */
 export function upsellPriceFor(
   price: number,
-  rules: UpsellPricingRules = DEFAULT_STORE_SETTINGS,
+  rules: UpsellPricingRules,
 ): number {
   assertMadAmount(price);
   if (!Number.isInteger(rules.upsellDiscountPercent) ||

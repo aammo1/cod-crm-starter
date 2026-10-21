@@ -19,7 +19,8 @@ process.env.AUTH_SECRET = "isolated-order-workflow-test-secret-32-characters";
 process.env.META_PIXEL_ID = "";
 process.env.META_ACCESS_TOKEN = "";
 
-const { getDb, getOrder } = loadSource("@/lib/db");
+const { getDb } = loadSource("@/lib/db");
+const { getCrmOrder: getOrder } = loadSource("@/lib/services/orders");
 const { confirmOrder, cancelOrder, updateOrderLine, ConfirmationError } = loadSource("@/lib/services/confirmation");
 const { insertContact, listOrders } = loadSource("@/lib/services/orders");
 const { openStock } = loadSource("@/lib/services/inventory");
@@ -86,8 +87,10 @@ if (childAction) {
   }
 
   function state(id) {
+    const { contacts: _contacts, ...order } = getOrder(id);
+    void _contacts; // Contact journal changes are asserted separately below.
     return {
-      order: getOrder(id),
+      order,
       reservations: db.prepare("SELECT * FROM reservations WHERE order_id = ? ORDER BY variant_id").all(id),
       submissions: db.prepare("SELECT * FROM courier_submissions WHERE order_id = ? ORDER BY rowid").all(id),
       movements: db.prepare("SELECT * FROM stock_movements WHERE order_id = ? ORDER BY rowid").all(id),
@@ -101,8 +104,8 @@ if (childAction) {
     const payload = JSON.parse(saved.submissions[0].payload_json);
     assert.equal(payload.total, saved.order.total);
     const lines = [...saved.order.items, ...(saved.order.upsellItems ?? [])];
-    assert.deepEqual(payload.items, lines.map(({ product_id, name, quantity }) => ({
-      product_id, name, quantity,
+    assert.deepEqual(payload.items, lines.map(({ product_id, variant_id, sku, name, variant_label, options, quantity }) => ({
+      product_id, variant_id, sku, name, variant_label, options, quantity,
     })));
     assert.equal(saved.reservations.reduce((sum, row) => sum + row.qty, 0), lines.reduce((sum, row) => sum + row.quantity, 0));
     assert.equal(saved.reservations.find(row => row.variant_id === "test-main")?.qty, 1);

@@ -5,14 +5,15 @@ import path from "node:path";
 import { after, test } from "node:test";
 import { loadSource } from "./test-source.mjs";
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "zehri-dashboard-"));
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-dashboard-"));
 process.env.DB_PATH = path.join(tempDir, "test.db");
 process.env.DELIVERY_PROVIDER = "mock";
 process.env.OZON_CLIENT_ID = "";
 process.env.OZON_API_KEY = "";
 process.env.OZON_POLL_INTERVAL_MIN = "30";
 
-const { createOrder, getDb } = loadSource("@/lib/db");
+const { getDb } = loadSource("@/lib/db");
+import { createOrder } from "./fulfillment-fixtures.mjs";
 const { getDashboard } = loadSource("@/lib/services/dashboard");
 const { listOrders } = loadSource("@/lib/services/orders");
 const { openStock } = loadSource("@/lib/services/inventory");
@@ -27,16 +28,15 @@ after(() => {
 });
 
 db.prepare(`INSERT INTO products (id, slug, name, category, price, created_at, updated_at)
-  VALUES ('p', 'p', 'Bottines', 'bottines', 300, ?, ?), ('p-off', 'p-off', 'Archive', 'bottines', 300, ?, ?)`)
+  VALUES ('p', 'p', 'Lampe', 'maison', 300, ?, ?), ('p-off', 'p-off', 'Archive', 'maison', 300, ?, ?)`)
   .run(iso(), iso(), iso(), iso());
 db.prepare("UPDATE products SET active = 0 WHERE id = 'p-off'").run();
-db.prepare("INSERT INTO product_colors (id, product_id, name) VALUES ('c', 'p', 'Noir'), ('c-off', 'p-off', 'Noir')").run();
 
 let n = 0;
 function parcel({ tracking, normalized, status = "submitted", lastSync = null, created = iso() }) {
   const id = `d${++n}`;
   createOrder({ id, customerName: `Cliente ${n}`, customerPhone: "+212612345678",
-    items: [{ product_id: "p", name: "Bottines", color: "Noir", size: "38", quantity: 1, unit_price: 300, line_total: 300 }],
+    items: [{ product_id: "p", variant_id: "low", sku: "LOW", name: "Lampe", variant_label: "USB", options: [{ name: "Alimentation", value: "USB" }], quantity: 1, unit_price: 300, line_total: 300 }],
     upsellOffer: null, subtotal: 300, shipping: 29, total: 329 });
   db.prepare("UPDATE orders SET confirmation_status = 'confirmed' WHERE id = ?").run(id);
   db.prepare(`INSERT INTO courier_submissions
@@ -78,11 +78,10 @@ test("returns card only lists active returns and counts them in SQL", () => {
 });
 
 test("low stock covers active variants only and counts a missing balance as zero", () => {
-  db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES ('low', 'p', 'c', '36', 'LOW')").run();
-  db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES ('nobalance', 'p', 'c', '37', 'NOBAL')").run();
-  db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku, active) VALUES ('inactive', 'p', 'c', '38', 'INACT', 0)").run();
-  db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES ('archived', 'p-off', 'c-off', '38', 'ARCH')").run();
-  db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES ('fine', 'p', 'c', '39', 'FINE')").run();
+  for (const [id, product, sku, active] of [["low", "p", "LOW", 1], ["nobalance", "p", "NOBAL", 1], ["inactive", "p", "INACT", 0], ["archived", "p-off", "ARCH", 1], ["fine", "p", "FINE", 1]]) {
+    db.prepare("INSERT INTO variants (id, product_id, sku, label, options_json, options_key, active) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(id, product, sku, id, JSON.stringify([{ name: "Alimentation", value: id }]), JSON.stringify([["alimentation", id]]), active);
+  }
   openStock("low", 1, "t");
   openStock("fine", 50, "t");
   openStock("inactive", 0, "t");

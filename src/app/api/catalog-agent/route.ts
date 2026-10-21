@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { z, ZodError } from "zod";
+import { z, ZodError } from "@/lib/validation";
 import { CatalogAgentError, requireCatalogAgent } from "@/lib/catalog-agent-auth";
 import { listProducts } from "@/lib/services/catalog";
 import { applyCatalogOperation, catalogReceipt, findCatalogProduct, previewCatalogOperation } from "@/lib/services/catalog-agent";

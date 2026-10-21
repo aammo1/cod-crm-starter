@@ -1,5 +1,4 @@
-import { z } from "zod";
-import { SHIPPING_FEE, shippingFor } from "@/lib/pricing";
+import { z } from "./validation";
 
 export const orderEditSchema = z.object({
   revision: z.string().length(64),
@@ -25,19 +24,3 @@ export const orderEditSchema = z.object({
 export type OrderEditInput = z.infer<typeof orderEditSchema>;
 export type DiscountType = OrderEditInput["discountType"];
 export type ShippingMode = OrderEditInput["shippingMode"];
-
-export function orderEditTotals(
-  regularSubtotal: number,
-  upsellSubtotal: number,
-  discountType: DiscountType,
-  discountValue: number,
-  shippingMode: ShippingMode,
-) {
-  const discountAmount = discountType === "percent"
-    ? Math.round(regularSubtotal * discountValue / 100)
-    : discountType === "fixed" ? discountValue : 0;
-  const subtotal = regularSubtotal + upsellSubtotal;
-  const netSubtotal = subtotal - discountAmount;
-  const shipping = shippingMode === "free" ? 0 : shippingMode === "paid" ? SHIPPING_FEE : shippingFor(netSubtotal);
-  return { subtotal, discountAmount, shipping, total: netSubtotal + shipping };
-}

@@ -105,6 +105,6 @@ Task 05 implements against the shared typed catalog port, with final runtime bin
 - [x] [task-18-catalog-agent](./tasks/task-18-catalog-agent.md) — Preserve optional catalog automation
 - [x] [task-19-deployment-guides](./tasks/task-19-deployment-guides.md) — Portable deployment and agent documentation
 ### Wave 8
-- [ ] [task-20-release-integration](./tasks/task-20-release-integration.md) — Close integration gaps and verify release
+- [x] [task-20-release-integration](./tasks/task-20-release-integration.md) — Close integration gaps and verify release
 ### Wave 9
 - [ ] [task-21-public-template](./tasks/task-21-public-template.md) — Publish `aammo1/cod-crm-starter`

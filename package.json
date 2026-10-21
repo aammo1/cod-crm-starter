@@ -11,9 +11,13 @@
     "test:meta": "node --test scripts/meta-workflow.test.mjs",
     "test:security": "node --test scripts/security-workflow.test.mjs",
     "test:order-edits-browser": "node --test scripts/order-edits-browser.test.mjs",
+    "test:e2e-crm": "node scripts/e2e-crm.mjs",
+    "test:integration": "node --test scripts/release-integration.test.mjs",
+    "test:release-tree": "node scripts/release-tree.mjs",
+    "test:fresh-install": "node --test scripts/fresh-install.test.mjs",
     "test:assistant": "node --test scripts/assistant-workflow.test.mjs",
     "test:catalog-agent": "node --test scripts/catalog-agent.test.mjs",
-    "test:crm": "node --test scripts/order-workflow.test.mjs scripts/order-edits.test.mjs scripts/order-lifecycle.test.mjs scripts/confirmed-test-cleanup.test.mjs scripts/bl-workflow.test.mjs scripts/returns-workflow.test.mjs scripts/tracking-workflow.test.mjs scripts/mock-flow.test.mjs scripts/submission-resolution.test.mjs scripts/dashboard-accuracy.test.mjs scripts/inventory-workflow.test.mjs",
+    "test:crm": "node --test scripts/order-workflow.test.mjs scripts/order-edits.test.mjs scripts/order-lifecycle.test.mjs scripts/confirmed-test-cleanup.test.mjs scripts/bl-workflow.test.mjs scripts/returns-workflow.test.mjs scripts/tracking-workflow.test.mjs scripts/mock-flow.test.mjs scripts/submission-resolution.test.mjs scripts/dashboard-accuracy.test.mjs scripts/inventory-workflow.test.mjs scripts/manual-order.test.mjs",
     "backup": "node scripts/backup-db.mjs"
   },
   "dependencies": {
