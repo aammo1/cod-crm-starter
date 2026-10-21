@@ -9,12 +9,14 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { loadSource } from "./test-source.mjs";
 
-const childAction = process.env.ZEHRI_BL_TEST_ACTION;
-const tempDir = childAction ? null : fs.mkdtempSync(path.join(os.tmpdir(), "zehri-bl-workflow-"));
+const childAction = process.env.CRM_BL_TEST_ACTION;
+const tempDir = childAction ? null : fs.mkdtempSync(path.join(os.tmpdir(), "crm-bl-workflow-"));
 if (tempDir) process.env.DB_PATH = path.join(tempDir, "test.db");
+if (tempDir) process.env.UPLOAD_DIR = path.join(tempDir, "uploads");
 process.env.DELIVERY_PROVIDER = "mock";
 process.env.OZON_CLIENT_ID = "";
 process.env.OZON_API_KEY = "";
+globalThis.fetch = async () => { throw new Error("HTTP disabled in isolated fulfillment tests"); };
 const { createOrder, getDb } = loadSource("@/lib/db");
 const { confirmOrder } = loadSource("@/lib/services/confirmation");
 const { openStock } = loadSource("@/lib/services/inventory");
@@ -45,7 +47,7 @@ if (childAction) {
   };
   process.once("message", async () => {
     try {
-      const data = JSON.parse(process.env.ZEHRI_BL_TEST_INPUT);
+      const data = JSON.parse(process.env.CRM_BL_TEST_INPUT);
       const result = childAction === "resume" ? await resumeBlOperation(data.id, actor, provider)
         : childAction === "reconcile" ? reconcileBlOperation(data.id, data.input, actor)
         : await createOrResumeBl(data.ids, actor, provider);
@@ -58,10 +60,9 @@ if (childAction) {
   after(() => { db.close(); fs.rmSync(tempDir, { recursive: true, force: true }); });
   const now = new Date().toISOString();
   db.prepare(`INSERT INTO products (id, slug, name, category, price, created_at, updated_at)
-    VALUES ('test-product', 'test-product', 'Bottines test', 'bottines', 300, ?, ?)`).run(now, now);
-  db.prepare("INSERT INTO product_colors (id, product_id, name) VALUES ('test-color', 'test-product', 'Noir')").run();
-  db.prepare(`INSERT INTO variants (id, product_id, color_id, size, sku)
-    VALUES ('test-main', 'test-product', 'test-color', '38', 'TEST-38')`).run();
+    VALUES ('test-product', 'test-product', 'Sérum test', 'soins', 300, ?, ?)`).run(now, now);
+  db.prepare(`INSERT INTO variants (id, product_id, sku, label, options_json, options_key)
+    VALUES ('test-main', 'test-product', 'TEST-500', '500 ml', '[{"name":"Contenance","value":"500 ml"}]', '[["contenance","500 ml"]]')`).run();
   openStock("test-main", 1000, actor.id);
   db.prepare("INSERT INTO cities (id, name, updated_at) VALUES (1, 'Casablanca', ?)").run(now);
   db.exec("CREATE TABLE test_courier_calls (kind TEXT, ref TEXT, codes TEXT)");
@@ -70,7 +71,7 @@ if (childAction) {
   function parcel() {
     const id = `order-${++parcelSeq}`;
     createOrder({ id, customerName: "Cliente test", customerPhone: "+212612345678",
-      items: [{ product_id: "test-product", name: "Bottines test", color: "Noir", size: "38", quantity: 1, unit_price: 300, line_total: 300 }],
+      items: [{ product_id: "test-product", variant_id: "test-main", sku: "TEST-500", name: "Sérum test", variant_label: "500 ml", options: [{ name: "Contenance", value: "500 ml" }], quantity: 1, unit_price: 300, line_total: 300 }],
       upsellOffer: null, subtotal: 300, shipping: 29, total: 329 });
     const result = confirmOrder(id, { lines: [{ lineIndex: 0, variantId: "test-main" }], address: "12 rue test", cityId: 1 }, actor);
     db.prepare("UPDATE courier_submissions SET status = 'submitted', tracking_number = ? WHERE id = ?").run(`TRACK-${parcelSeq}`, result.submissionId);
@@ -96,7 +97,7 @@ if (childAction) {
   async function race(inputs, action = "create") {
     db.prepare("DELETE FROM test_courier_calls").run();
     const children = inputs.map(input => fork(fileURLToPath(import.meta.url), [], {
-      env: { ...process.env, ZEHRI_BL_TEST_ACTION: action, ZEHRI_BL_TEST_INPUT: JSON.stringify(input) },
+      env: { ...process.env, CRM_BL_TEST_ACTION: action, CRM_BL_TEST_INPUT: JSON.stringify(input) },
       execArgv: [], stdio: ["ignore", "ignore", "inherit", "ipc"],
     }));
     try {

@@ -1,4 +1,5 @@
-import { getDb, getOrder } from "@/lib/db";
+import { getDb } from "@/lib/db";
+import { getCrmOrder as getOrder } from "@/lib/services/orders";
 import { ProviderError } from "@/lib/shipping/errors";
 import { getProvider } from "@/lib/shipping";
 import { buildCreateParcelInput } from "@/lib/shipping/parcel-payload";

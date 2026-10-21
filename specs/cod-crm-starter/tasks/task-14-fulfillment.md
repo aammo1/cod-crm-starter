@@ -1,7 +1,7 @@
 # Task 14: Generalize shipping descriptions, tracking and returns
 
 ## Status
-pending
+complete
 
 ## Wave
 6

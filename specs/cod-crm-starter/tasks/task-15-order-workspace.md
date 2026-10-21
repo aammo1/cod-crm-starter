@@ -1,7 +1,7 @@
 # Task 15: Adapt the agent order workspace and CRM handlers
 
 ## Status
-pending
+complete
 
 ## Wave
 6

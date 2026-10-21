@@ -49,7 +49,7 @@ function variantDescription(variant: Pick<VariantOption, "label" | "options" | "
 }
 
 const fieldClassName =
-  "w-full border-input bg-card text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring";
+  "w-full min-w-0 border-input bg-card text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate";
 
 async function readError(response: Response, fallback: string): Promise<string> {
   const data = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -81,6 +81,7 @@ export function ConfirmOrder({
   const [confirming, setConfirming] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [syncingCities, setSyncingCities] = useState(false);
+  const [error, setError] = useState("");
   const busy = useRef(false);
 
   async function handleSyncCities() {
@@ -143,20 +144,7 @@ export function ConfirmOrder({
 
   function handleLineChange(line: ConfirmOrderLine, variantId: string) {
     setSelections((previous) => ({ ...previous, [line.lineIndex]: variantId }));
-    if (line.upsell) return;
-    fetch(`/api/crm/orders/${orderId}/lines`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lineIndex: line.lineIndex, variantId }),
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          toast.error(await readError(response, "Erreur lors de la modification de la ligne."));
-          return;
-        }
-        router.refresh();
-      })
-      .catch(() => toast.error("Erreur lors de la modification de la ligne."));
+    setError("");
   }
 
   async function onConfirm() {
@@ -180,6 +168,7 @@ export function ConfirmOrder({
     }
     busy.current = true;
     setConfirming(true);
+    setError("");
     try {
       const response = await fetch(`/api/crm/orders/${orderId}/confirm`, {
         method: "POST",
@@ -194,12 +183,15 @@ export function ConfirmOrder({
         }),
       });
       if (!response.ok) {
-        toast.error(await readError(response, "Erreur lors de la confirmation."));
+        const message = await readError(response, "Erreur lors de la confirmation.");
+        setError(message);
+        toast.error(message);
         return;
       }
       toast.success("Commande confirmée — stock réservé, colis mis en file.");
       router.refresh();
     } catch {
+      setError("Erreur de connexion. Rechargez la commande pour vérifier son état avant de réessayer.");
       toast.error("Erreur lors de la confirmation.");
     } finally {
       busy.current = false;
@@ -241,7 +233,7 @@ export function ConfirmOrder({
         Confirmation de la commande
       </h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        La confirmation réserve le stock de chaque article et met le colis en file transporteur.
+        Les variantes choisies sont enregistrées avec la confirmation, qui réserve le stock et met le colis en file transporteur.
       </p>
 
       {cities.length === 0 ? (
@@ -271,7 +263,7 @@ export function ConfirmOrder({
                   <span className="text-muted-foreground"> ×{line.quantity}</span>
                   {line.upsell ? (
                     <span className="ml-2 inline-flex rounded-full border border-[var(--crm-upsell)]/40 bg-[var(--crm-upsell-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--crm-upsell)]">
-                      Upsell −30%
+                      Upsell
                     </span>
                   ) : null}
                 </p>
@@ -282,16 +274,16 @@ export function ConfirmOrder({
               <Select
                 value={value}
                 onValueChange={(variantId) => handleLineChange(line, variantId)}
-                disabled={loadingVariants || variants.length === 0}
+                disabled={confirming || cancelling || loadingVariants || variants.length === 0}
               >
-                <SelectTrigger className={fieldClassName}>
+                <SelectTrigger className={`${fieldClassName} min-w-0`} aria-label={`Variante à confirmer de l’article ${line.lineIndex + 1}`}>
                   <SelectValue
                     placeholder={
                       loadingVariants ? "Chargement des variantes…" : "Choisir la variante…"
                     }
                   />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-2rem)] [&_[data-slot=select-item]]:whitespace-normal [&_[data-slot=select-item]]:break-words">
                   {variants.map((variant) => (
                     <SelectItem
                       key={variant.variantId}
@@ -312,6 +304,7 @@ export function ConfirmOrder({
           );
         })}
       </ul>
+      {error ? <p role="alert" className="mt-4 rounded-lg border border-destructive p-3 text-sm text-destructive">{error}</p> : null}
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
@@ -319,7 +312,8 @@ export function ConfirmOrder({
             Adresse
           </Label>
           <Textarea
-            id="confirm-address"
+              id="confirm-address"
+              disabled={confirming || cancelling}
             rows={2}
             value={address}
             onChange={(event) => setAddress(event.target.value)}
@@ -331,7 +325,7 @@ export function ConfirmOrder({
           <Label htmlFor="confirm-city" className="text-muted-foreground">
             Ville
           </Label>
-          <Select value={cityId || undefined} onValueChange={setCityId}>
+          <Select value={cityId || undefined} onValueChange={setCityId} disabled={confirming || cancelling}>
             <SelectTrigger id="confirm-city" className={fieldClassName}>
               <SelectValue placeholder="Choisir la ville…" />
             </SelectTrigger>
@@ -363,6 +357,7 @@ export function ConfirmOrder({
         </Button>
         <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
           <Input
+            aria-label="Motif d’annulation"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             placeholder="Motif d'annulation…"

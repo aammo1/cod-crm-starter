@@ -15,6 +15,7 @@ import { ConfirmOrder } from "@/components/crm/confirm-order";
 import { EditOrder } from "@/components/crm/edit-order";
 import { OrderEditHistoryList } from "@/components/crm/order-edit-history";
 import { getOrderEditState, listOrderEdits, orderEditOptions } from "@/lib/services/order-edits";
+import { MissingOrderShippingRulesError, orderShippingRules } from "@/lib/services/order-lines";
 import { CopyButton } from "@/components/crm/copy-button";
 import { SubmissionResolveForm } from "@/components/crm/submission-resolve-form";
 import { ContactLogForm } from "@/components/crm/contact-log-form";
@@ -166,6 +167,13 @@ export default async function OrderDetailPage({
   const cities = listCities();
   const editState = getOrderEditState(id);
   const editHistory = listOrderEdits(id);
+  let shippingRules;
+  let pricingError;
+  try { shippingRules = orderShippingRules(id); }
+  catch (error) {
+    if (!(error instanceof MissingOrderShippingRulesError)) throw error;
+    pricingError = error.message;
+  }
   const upsellLines = order.upsellStatus === "accepted" ? (order.upsellItems ?? []) : [];
   const allLines: Array<CommerceOrderItem & { upsell: boolean }> = [
     ...order.items.map((item) => ({ ...item, upsell: false })),
@@ -220,8 +228,9 @@ export default async function OrderDetailPage({
         </Button>
       </div>
 
-      {editState.editable ? <EditOrder key={editState.revision} orderId={id} revision={editState.revision}
-        snapshot={editState.snapshot} options={orderEditOptions()}>
+      {pricingError && editState.editable ? <p role="alert" className="rounded-xl border border-destructive p-4 text-sm text-destructive">{pricingError}</p> : null}
+      {editState.editable && shippingRules ? <EditOrder key={editState.revision} orderId={id} revision={editState.revision}
+        snapshot={editState.snapshot} options={orderEditOptions()} shippingRules={shippingRules}>
         <ConfirmOrder
           orderId={order.id}
           lines={allLines.map((item, index) => ({
@@ -305,7 +314,7 @@ export default async function OrderDetailPage({
                         {item.name}
                         {item.upsell ? (
                           <span className="ml-2 inline-flex rounded-full border border-[var(--crm-upsell)]/40 bg-[var(--crm-upsell-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--crm-upsell)]">
-                            Upsell −30%
+                            Upsell
                           </span>
                         ) : null}
                       </td>
@@ -458,6 +467,7 @@ export default async function OrderDetailPage({
           Résultat du contact
         </h2>
         <ContactLogForm
+          key={`${order.id}-${order.confirmationStatus}`}
           orderId={order.id}
           orderStatus={order.confirmationStatus}
         />

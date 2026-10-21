@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatMad, FREE_SHIPPING_THRESHOLD, SHIPPING_FEE } from "@/lib/pricing";
-import { orderEditSchema, orderEditTotals, type DiscountType, type ShippingMode } from "@/lib/order-edit-schema";
+import { formatMad, shippingFor, type ShippingRules } from "@/lib/pricing";
+import { orderEditSchema, type DiscountType, type ShippingMode } from "@/lib/order-edit-schema";
 import type { OrderEditSnapshot } from "@/lib/services/order-edits";
 import type { VariantOption } from "@/lib/commerce-types";
 
@@ -24,8 +24,8 @@ interface Line {
   key: number; variantId: string; qty: number; productId: string; name: string; upsellIndex?: number; upsellPrice?: number;
 }
 
-export function EditOrder({ orderId, revision, snapshot, options, children }: {
-  orderId: string; revision: string; snapshot: OrderEditSnapshot; options: Option[]; children?: React.ReactNode;
+export function EditOrder({ orderId, revision, snapshot, options, shippingRules, children }: {
+  orderId: string; revision: string; snapshot: OrderEditSnapshot; options: Option[]; shippingRules: ShippingRules; children?: React.ReactNode;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -49,7 +49,11 @@ export function EditOrder({ orderId, revision, snapshot, options, children }: {
   const regularSubtotal = lines.reduce((sum, line) => line.upsellIndex === undefined
     ? sum + (options.find((o) => o.variantId === line.variantId)?.price ?? 0) * line.qty : sum, 0);
   const upsellSubtotal = lines.reduce((sum, line) => sum + (line.upsellPrice ?? 0) * line.qty, 0);
-  const totals = orderEditTotals(regularSubtotal, upsellSubtotal, discountType, Number(discountValue), shippingMode);
+  const discountAmount = discountType === "percent" ? Math.round(regularSubtotal * Number(discountValue) / 100)
+    : discountType === "fixed" ? Number(discountValue) : 0;
+  const netSubtotal = Math.max(0, regularSubtotal + upsellSubtotal - (Number.isFinite(discountAmount) ? discountAmount : 0));
+  const shipping = shippingMode === "free" ? 0 : shippingMode === "paid" ? shippingRules.shippingFeeMad : shippingFor(netSubtotal, shippingRules);
+  const totals = { discountAmount, shipping, total: netSubtotal + shipping };
   const filteredOptions = options.filter((v) => optionDescription(v).toLocaleLowerCase("fr").includes(query.toLocaleLowerCase("fr")));
 
   function reset() {
@@ -103,12 +107,12 @@ export function EditOrder({ orderId, revision, snapshot, options, children }: {
             {lines.map((line, index) => {
               const selected = options.find((v) => v.variantId === line.variantId);
               return <fieldset key={line.key} className="grid min-w-0 gap-3 rounded-lg border border-border p-3 sm:grid-cols-[minmax(0,1fr)_5rem_auto]">
-                <legend className="px-1 text-xs font-medium text-muted-foreground">Article {index + 1}{line.upsellIndex !== undefined ? " · Upsell −30 %" : ""}</legend>
+                <legend className="px-1 text-xs font-medium text-muted-foreground">Article {index + 1}{line.upsellIndex !== undefined ? " · Upsell (prix conservé)" : ""}</legend>
                 <label className="flex min-w-0 flex-col gap-2 text-sm">
                    <span>Produit · variante · SKU</span>
                   <Select value={line.variantId} disabled={saving} onValueChange={(variantId) => setLines(lines.map((l) => l.key === line.key ? { ...l, variantId } : l))}>
-                    <SelectTrigger className="w-full min-w-0" aria-label={`Variante de l’article ${index + 1}`}><SelectValue placeholder={`${line.name} — choisir une variante`} /></SelectTrigger>
-                    <SelectContent><SelectGroup>{options.filter((v) => line.upsellIndex === undefined || v.productId === line.productId).map((v) =>
+                    <SelectTrigger className="w-full min-w-0 [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate" aria-label={`Variante de l’article ${index + 1}`}><SelectValue placeholder={`${line.name} — choisir une variante`} /></SelectTrigger>
+                    <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-2rem)] [&_[data-slot=select-item]]:whitespace-normal [&_[data-slot=select-item]]:break-words"><SelectGroup>{options.filter((v) => line.upsellIndex === undefined || v.productId === line.productId).map((v) =>
                       <SelectItem key={v.variantId} value={v.variantId}>{optionDescription(v)} · {v.available} disponible(s)</SelectItem>)}</SelectGroup></SelectContent>
                   </Select>
                   <span className="text-xs text-muted-foreground">{formatMad(line.upsellPrice ?? selected?.price ?? 0)} / unité{selected ? ` · Stock : ${selected.available}` : " · Sélection requise"}</span>
@@ -127,8 +131,8 @@ export function EditOrder({ orderId, revision, snapshot, options, children }: {
             <Input aria-label="Rechercher un produit" placeholder="Rechercher un produit, une variante, un SKU…" value={query} onChange={(e) => { setQuery(e.target.value); setAddVariant(""); }} />
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
               <Select value={addVariant} disabled={saving} onValueChange={setAddVariant}>
-                <SelectTrigger className="w-full min-w-0" aria-label="Article à ajouter"><SelectValue placeholder={filteredOptions.length ? "Choisir une variante" : "Aucun résultat"} /></SelectTrigger>
-                <SelectContent><SelectGroup>{filteredOptions.map((v) => <SelectItem key={v.variantId} value={v.variantId} disabled={v.available < 1}>{optionDescription(v)} · {formatMad(v.price)} · Stock {v.available}</SelectItem>)}</SelectGroup></SelectContent>
+                <SelectTrigger className="w-full min-w-0 [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate" aria-label="Article à ajouter"><SelectValue placeholder={filteredOptions.length ? "Choisir une variante" : "Aucun résultat"} /></SelectTrigger>
+                <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-2rem)] [&_[data-slot=select-item]]:whitespace-normal [&_[data-slot=select-item]]:break-words"><SelectGroup>{filteredOptions.map((v) => <SelectItem key={v.variantId} value={v.variantId} disabled={v.available < 1}>{optionDescription(v)} · {formatMad(v.price)} · Stock {v.available}</SelectItem>)}</SelectGroup></SelectContent>
               </Select>
               <Button type="button" variant="secondary" disabled={!addVariant || lines.length >= 50} onClick={() => {
                 const v = options.find((o) => o.variantId === addVariant);
@@ -148,9 +152,9 @@ export function EditOrder({ orderId, revision, snapshot, options, children }: {
             </fieldset>
             <fieldset className="flex flex-col gap-3 text-sm">
               <legend className="mb-3 font-semibold">Livraison</legend>
-              {([['auto', 'Automatique'], ['free', 'Gratuite'], ['paid', `Payante · ${formatMad(SHIPPING_FEE)}`]] as const).map(([value, label]) =>
+              {([['auto', 'Automatique'], ['free', 'Gratuite'], ['paid', `Payante · ${formatMad(shippingRules.shippingFeeMad)}`]] as const).map(([value, label]) =>
                 <label key={value} className="flex items-center gap-2"><input type="radio" name="shipping" value={value} checked={shippingMode === value} onChange={() => setShippingMode(value)} />{label}</label>)}
-              <p className="text-xs text-muted-foreground">Automatique : {formatMad(SHIPPING_FEE)}, offerte dès {formatMad(FREE_SHIPPING_THRESHOLD)} après remise, upsell inclus.</p>
+              <p className="text-xs text-muted-foreground">Règles enregistrées avec la commande : {formatMad(shippingRules.shippingFeeMad)}, offerte dès {formatMad(shippingRules.freeShippingThresholdMad)} après remise, upsell inclus. Estimation ; le serveur fixe le montant définitif.</p>
             </fieldset>
           </div>
           <dl aria-live="polite" className="flex flex-col gap-2 rounded-lg bg-muted/50 p-4 text-sm tabular-nums">
@@ -162,7 +166,7 @@ export function EditOrder({ orderId, revision, snapshot, options, children }: {
             <div className="flex justify-between gap-3 text-muted-foreground"><dt>Montant actuel</dt><dd>{formatMad(snapshot.total)}</dd></div>
           </dl>
           <label className="flex flex-col gap-2 text-sm font-medium">Motif de modification
-            <Textarea required minLength={3} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex. : la cliente souhaite une autre paire et la livraison offerte." />
+            <Textarea required minLength={3} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex. : le client souhaite un autre article et la livraison offerte." />
           </label>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <div className="flex flex-wrap justify-end gap-2">

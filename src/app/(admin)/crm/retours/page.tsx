@@ -12,7 +12,8 @@ import { ReceiveReturnButton, ReturnInspectForm, type InspectLine } from "@/comp
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { requireUser } from "@/lib/auth-guards";
-import { getDb, type OrderItem } from "@/lib/db";
+import { getDb } from "@/lib/db";
+import type { CommerceOrderItem as OrderItem } from "@/lib/commerce-types";
 import { getDispatchedVariants, resolveVariantForLine } from "@/lib/services/inventory";
 import { formatCasablanca, summarizeItems } from "@/lib/services/orders";
 import { declareManualReturn } from "@/lib/services/returns";
@@ -88,8 +89,8 @@ function buildInspectLines(card: ReturnCard): InspectLine[] {
   return parcelLines.map((item, index) => ({
     lineIndex: index,
     name: item.name,
-    color: item.color,
-    size: item.size,
+    variant_label: item.variant_label,
+    options: item.options,
     quantity: item.quantity,
     upsell: index >= card.items.length,
     inspectable: (() => {

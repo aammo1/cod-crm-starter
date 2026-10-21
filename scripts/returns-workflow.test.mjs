@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 import { loadSource } from "./test-source.mjs";
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "zehri-returns-workflow-"));
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-returns-workflow-"));
 process.env.DB_PATH = path.join(tempDir, "test.db");
+process.env.UPLOAD_DIR = path.join(tempDir, "uploads");
 process.env.DELIVERY_PROVIDER = "mock";
 process.env.OZON_CLIENT_ID = "";
 process.env.OZON_API_KEY = "";
+globalThis.fetch = async () => { throw new Error("HTTP disabled in isolated fulfillment tests"); };
 
 const { createOrder, getDb } = loadSource("@/lib/db");
 const inventory = loadSource("@/lib/services/inventory");
@@ -25,11 +28,10 @@ after(() => {
 });
 
 db.prepare(`INSERT INTO products (id, slug, name, category, price, created_at, updated_at)
-  VALUES ('p', 'p', 'Bottines test', 'bottines', 300, ?, ?)`).run(now, now);
-db.prepare("INSERT INTO product_colors (id, product_id, name) VALUES ('c', 'p', 'Noir')").run();
-for (const [id, size] of [["v38", "38"], ["v39", "39"]]) {
-  db.prepare(`INSERT INTO variants (id, product_id, color_id, size, sku)
-    VALUES (?, 'p', 'c', ?, ?)`).run(id, size, id);
+  VALUES ('p', 'p', 'Sérum test', 'soins', 300, ?, ?)`).run(now, now);
+for (const [id, label] of [["v38", "250 ml"], ["v39", "500 ml"]]) {
+  db.prepare(`INSERT INTO variants (id, product_id, label, options_json, options_key, sku)
+    VALUES (?, 'p', ?, ?, ?, ?)`).run(id, label, JSON.stringify([{ name: "Contenance", value: label }]), JSON.stringify([["contenance", label]]), id);
   openStock(id, 10, actor);
 }
 
@@ -39,7 +41,10 @@ const physical = (id) => db.prepare("SELECT physical, reserved, quarantine FROM 
 function receivedReturn(orderId, lines) {
   createOrder({
     id: orderId, customerName: "Cliente", customerPhone: "+212612345678",
-    items: [{ product_id: "p", name: "Bottines test", color: "Noir", size: "38", quantity: 1, unit_price: 300, line_total: 300 }],
+    items: lines.map(([variantId, qty]) => ({ product_id: "p", variant_id: variantId, sku: variantId,
+      name: "Sérum test", variant_label: variantId === "v38" ? "250 ml" : "500 ml",
+      options: [{ name: "Contenance", value: variantId === "v38" ? "250 ml" : "500 ml" }],
+      quantity: qty, unit_price: 300, line_total: 300 * qty })),
     subtotal: 300, shipping: 29, total: 329,
   });
   reserveForOrder(orderId, lines.map(([variantId, qty]) => ({ variantId, qty })), actor, "test");
@@ -134,4 +139,69 @@ test("a finalized partial inspection cannot add variants or switch the sellable/
   }
   assert.deepEqual([physical("v38"), physical("v39")], before);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM return_lines WHERE return_id = ?").get(returnId).n, 1);
+});
+
+test("historical inactive variants resolve by exact ID despite renamed catalog labels", () => {
+  const { submissionId, returnId } = receivedReturn("archived", [["v38", 1], ["v39", 1]]);
+  const snapshots = JSON.parse(db.prepare("SELECT items_json FROM orders WHERE id = 'archived'").get().items_json);
+  db.prepare("UPDATE variants SET active = 0, label = 'Libellé modifié' WHERE product_id = 'p'").run();
+  db.prepare("UPDATE products SET active = 0, name = 'Produit renommé' WHERE id = 'p'").run();
+  try {
+    assert.deepEqual(snapshots.map(inventory.resolveVariantForLine), ["v38", "v39"]);
+    assert.deepEqual(snapshots.map((item) => item.variant_label), ["250 ml", "500 ml"]);
+    assert.equal(inventory.resolveVariantForLine({ ...snapshots[0], product_id: "another-product" }), null);
+    receiveReturnLines(submissionId, "archived", [
+      { variantId: "v38", sellableQty: 1, damagedQty: 0 },
+      { variantId: "v39", sellableQty: 0, damagedQty: 1 },
+    ], actor, returnId);
+    assert.deepEqual(db.prepare("SELECT variant_id FROM return_lines WHERE return_id = ? ORDER BY variant_id").all(returnId), [{ variant_id: "v38" }, { variant_id: "v39" }]);
+  } finally {
+    db.prepare("UPDATE variants SET active = 1 WHERE product_id = 'p'").run();
+    db.prepare("UPDATE products SET active = 1 WHERE id = 'p'").run();
+  }
+});
+
+test("two processes inspecting one received return cannot duplicate stock or change the winning split", async () => {
+  const { submissionId, returnId } = receivedReturn("inspection-race", [["v38", 1]]);
+  const before = physical("v38");
+  const childCode = `
+    import { loadSource } from ${JSON.stringify(new URL("./test-source.mjs", import.meta.url).href)};
+    const { getDb } = loadSource("@/lib/db");
+    const { receiveReturnLines } = loadSource("@/lib/services/inventory");
+    process.once("message", (input) => {
+      try {
+        receiveReturnLines(input.submissionId, "inspection-race", input.lines, "race-agent", input.returnId);
+        process.send({ ok: true });
+      } catch (error) { process.send({ ok: false, message: error.message }); }
+      finally { getDb().close(); process.disconnect(); }
+    });
+    process.send({ ready: true });
+  `;
+  const children = [0, 1].map(() => spawn(process.execPath, ["--input-type=module", "--eval", childCode], {
+    env: { ...process.env }, stdio: ["ignore", "ignore", "inherit", "ipc"],
+  }));
+  try {
+    const ready = children.map((child) => new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("message", (message) => { assert.equal(message.ready, true); resolve(); });
+      child.once("exit", () => reject(new Error("Inspection process exited before readiness")));
+    }));
+    const results = children.map((child) => new Promise((resolve, reject) => {
+      let result;
+      child.on("message", (message) => { if (!message.ready) result = message; });
+      child.once("error", reject);
+      child.once("exit", (code) => result && code === 0 ? resolve(result) : reject(new Error("Inspection process failed")));
+    }));
+    await Promise.all(ready);
+    children.forEach((child, index) => child.send({ submissionId, returnId,
+      lines: [{ variantId: "v38", sellableQty: index, damagedQty: 1 - index }] }));
+    const outcomes = await Promise.all(results);
+    assert.equal(outcomes.filter((result) => result.ok).length, 1);
+    const saved = db.prepare("SELECT sellable_qty, damaged_qty FROM return_lines WHERE return_id = ?").get(returnId);
+    assert.equal(saved.sellable_qty + saved.damaged_qty, 1);
+    assert.deepEqual(physical("v38"), { ...before, physical: before.physical + 1, quarantine: before.quarantine + saved.damaged_qty });
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM stock_movements WHERE submission_id = ? AND kind IN ('receive_sellable', 'receive_quarantine')").get(submissionId).n, 1);
+  } finally {
+    children.forEach((child) => { if (child.exitCode === null) child.kill(); });
+  }
 });

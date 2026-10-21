@@ -1,7 +1,7 @@
 # Task 16: Provide the typed storefront client and Next.js examples
 
 ## Status
-pending
+complete
 
 ## Wave
 6

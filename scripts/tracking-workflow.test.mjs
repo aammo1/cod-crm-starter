@@ -5,11 +5,13 @@ import path from "node:path";
 import { after, test } from "node:test";
 import { loadSource } from "./test-source.mjs";
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "zehri-tracking-workflow-"));
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-tracking-workflow-"));
 process.env.DB_PATH = path.join(tempDir, "test.db");
+process.env.UPLOAD_DIR = path.join(tempDir, "uploads");
 process.env.DELIVERY_PROVIDER = "mock";
 process.env.OZON_CLIENT_ID = "";
 process.env.OZON_API_KEY = "";
+globalThis.fetch = async () => { throw new Error("HTTP disabled in isolated fulfillment tests"); };
 
 const { createOrder, getDb } = loadSource("@/lib/db");
 const { openStock, reserveForOrder, dispatchOrder } = loadSource("@/lib/services/inventory");
@@ -17,6 +19,7 @@ const { pollOnce } = loadSource("@/lib/services/tracking");
 const { STATUS_MAP } = loadSource("@/lib/shipping/status-map");
 const db = getDb();
 const now = new Date().toISOString();
+assert.deepEqual(Object.keys(STATUS_MAP), [], "live mappings must stay unverified");
 
 // Temporary, test-only mappings: the production STATUS_MAP is intentionally
 // empty until Ozon statuses are verified live.
@@ -31,9 +34,9 @@ after(() => {
 });
 
 db.prepare(`INSERT INTO products (id, slug, name, category, price, created_at, updated_at)
-  VALUES ('p', 'p', 'Bottines test', 'bottines', 300, ?, ?)`).run(now, now);
-db.prepare("INSERT INTO product_colors (id, product_id, name) VALUES ('c', 'p', 'Noir')").run();
-db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES ('v', 'p', 'c', '38', 'v')").run();
+  VALUES ('p', 'p', 'Sérum test', 'soins', 300, ?, ?)`).run(now, now);
+db.prepare(`INSERT INTO variants (id, product_id, sku, label, options_json, options_key)
+  VALUES ('v', 'p', 'v', '500 ml', '[{"name":"Contenance","value":"500 ml"}]', '[["contenance","500 ml"]]')`).run();
 openStock("v", 50, "test");
 
 let n = 0;
@@ -41,7 +44,7 @@ function submitted(dispatch = true) {
   const id = `T${++n}`;
   createOrder({
     id, customerName: "Cliente", customerPhone: "+212612345678",
-    items: [{ product_id: "p", name: "Bottines test", color: "Noir", size: "38", quantity: 1, unit_price: 300, line_total: 300 }],
+    items: [{ product_id: "p", variant_id: "v", sku: "v", name: "Sérum test", variant_label: "500 ml", options: [{ name: "Contenance", value: "500 ml" }], quantity: 1, unit_price: 300, line_total: 300 }],
     subtotal: 300, shipping: 29, total: 329,
   });
   reserveForOrder(id, [{ variantId: "v", qty: 1 }], "test", "test");
@@ -55,6 +58,25 @@ const poll = (code, rawStatus, date) =>
 const current = (sub) => db.prepare("SELECT normalized_status s, raw_status r FROM courier_submissions WHERE id = ?").get(sub);
 const events = (sub) => db.prepare("SELECT COUNT(*) n FROM tracking_events WHERE submission_id = ?").get(sub).n;
 const returns = (sub) => db.prepare("SELECT COUNT(*) n FROM returns WHERE submission_id = ?").get(sub).n;
+
+test("unknown courier statuses preserve stock, reservations and return state", async () => {
+  for (const dispatch of [true, false]) {
+    const { sub, code } = submitted(dispatch);
+    const before = {
+      stock: db.prepare("SELECT * FROM stock_balances ORDER BY variant_id").all(),
+      movements: db.prepare("SELECT * FROM stock_movements ORDER BY id").all(),
+      reservations: db.prepare("SELECT * FROM reservations ORDER BY id").all(),
+    };
+    await poll(code, "UNVERIFIED_RETURN_DELIVERED");
+    assert.equal(current(sub).s, "unknown");
+    assert.equal(returns(sub), 0);
+    assert.deepEqual({
+      stock: db.prepare("SELECT * FROM stock_balances ORDER BY variant_id").all(),
+      movements: db.prepare("SELECT * FROM stock_movements ORDER BY id").all(),
+      reservations: db.prepare("SELECT * FROM reservations ORDER BY id").all(),
+    }, before);
+  }
+});
 
 test("an older in-transit observation cannot replace a newer delivered one", async () => {
   const { sub, code } = submitted();

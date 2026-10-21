@@ -20,7 +20,7 @@ export async function GET(
     return NextResponse.json({
       productActive: product.active,
       variants: product.variants
-        .filter((variant) => variant.active)
+        .filter((variant) => product.active && variant.active)
         .map((variant) => ({
           variantId: variant.id,
           sku: variant.sku,

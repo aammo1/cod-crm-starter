@@ -5,8 +5,9 @@ import path from "node:path";
 import { after, test } from "node:test";
 import { loadSource } from "./test-source.mjs";
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "zehri-mock-flow-"));
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-mock-flow-"));
 process.env.DB_PATH = path.join(tempDir, "test.db");
+process.env.UPLOAD_DIR = path.join(tempDir, "uploads");
 process.env.DELIVERY_PROVIDER = "mock";
 process.env.OZON_CLIENT_ID = "";
 process.env.OZON_API_KEY = "";
@@ -26,6 +27,11 @@ const { getProvider } = loadSource("@/lib/shipping");
 const { createMockProvider } = loadSource("@/lib/shipping/mock");
 const { syncCities } = loadSource("@/lib/shipping/ozon");
 const { drainSubmissions } = loadSource("@/lib/workers/submission");
+const { buildCreateParcelInput, buildSnapshotObject } = loadSource("@/lib/shipping/parcel-payload");
+const { shipmentDescription } = loadSource("@/lib/order-item-label");
+const { getCrmOrder } = loadSource("@/lib/services/orders");
+const { ensureReturn, markReturnReceived } = loadSource("@/lib/services/returns");
+const { receiveReturnLines } = loadSource("@/lib/services/inventory");
 const db = getDb();
 const actor = { id: "test-agent" };
 const now = new Date().toISOString();
@@ -37,9 +43,8 @@ after(() => {
 });
 
 db.prepare(`INSERT INTO products (id, slug, name, category, price, created_at, updated_at)
-  VALUES ('p', 'p', 'Bottines test', 'bottines', 300, ?, ?)`).run(now, now);
-db.prepare("INSERT INTO product_colors (id, product_id, name) VALUES ('c', 'p', 'Noir')").run();
-db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES ('v', 'p', 'c', '38', 'v')").run();
+  VALUES ('p', 'p', 'Chargeur test', 'accessoires', 300, ?, ?)`).run(now, now);
+db.prepare("INSERT INTO variants (id, product_id, sku, label, options_json, options_key) VALUES ('v', 'p', 'v', 'Standard', '[]', '[]')").run();
 openStock("v", 20, actor.id);
 
 test("getProvider returns one shared mock and cities sync goes through it", async () => {
@@ -54,7 +59,7 @@ test("confirmation → submission → BL → handoff → tracking runs on one mo
   for (const n of [1, 2]) {
     const id = `flow-${n}`;
     createOrder({ id, customerName: "Cliente", customerPhone: "+212612345678",
-      items: [{ product_id: "p", name: "Bottines test", color: "Noir", size: "38", quantity: 1, unit_price: 300, line_total: 300 }],
+      items: [{ product_id: "p", variant_id: "v", sku: "v", name: "Chargeur test", variant_label: "Standard", options: [], quantity: 1, unit_price: 300, line_total: 300 }],
       upsellOffer: null, subtotal: 300, shipping: 29, total: 329 });
     ids.push(confirmOrder(id, { lines: [{ lineIndex: 0, variantId: "v" }], address: "12 rue test", cityId: 1 }, actor).submissionId);
   }
@@ -87,4 +92,67 @@ test("mock numbers stay unique and trackable across a simulated restart", async 
   const b = (await createMockProvider().createParcel(input)).trackingNumber;
   assert.notEqual(a, b);
   assert.notEqual(a, code);
+});
+
+test("two-option and default snapshots survive catalog edits through mock shipment and archived return", async () => {
+  const options = [{ name: "Contenance", value: "500 ml" }, { name: "Parfum", value: "Rose" }];
+  db.prepare(`INSERT INTO products (id, slug, name, category, price, created_at, updated_at)
+    VALUES ('serum', 'serum', 'Sérum original', 'soins', 300, ?, ?)`).run(now, now);
+  db.prepare(`INSERT INTO variants (id, product_id, sku, label, options_json, options_key)
+    VALUES ('serum-rose', 'serum', 'SERUM-ROSE', '500 ml / Rose', ?, ?)`)
+    .run(JSON.stringify(options), JSON.stringify([["contenance", "500 ml"], ["parfum", "rose"]]));
+  openStock("serum-rose", 3, actor.id);
+  const items = [
+    { product_id: "serum", variant_id: "serum-rose", sku: "SERUM-ROSE", name: "Sérum original", variant_label: "500 ml / Rose", options, quantity: 2, unit_price: 300, line_total: 600 },
+    { product_id: "p", variant_id: "v", sku: "v", name: "Chargeur test", variant_label: "Standard", options: [], quantity: 1, unit_price: 300, line_total: 300 },
+  ];
+  createOrder({ id: "generic-history", customerName: "Cliente", customerPhone: "+212612345678",
+    items, upsellOffer: null, subtotal: 900, shipping: 0, total: 900 });
+  const { submissionId } = confirmOrder("generic-history", { lines: items.map((item, lineIndex) => ({ lineIndex, variantId: item.variant_id })), address: "12 rue test", cityId: 1 }, actor);
+  const frozen = db.prepare("SELECT payload_json FROM courier_submissions WHERE id = ?").get(submissionId).payload_json;
+  assert.deepEqual(JSON.parse(frozen).items.map((item) => item.variant_id), ["serum-rose", "v"]);
+  db.prepare("UPDATE products SET name = 'Nom modifié', active = 0 WHERE id = 'serum'").run();
+  db.prepare("UPDATE variants SET label = 'Nouveau libellé', active = 0 WHERE id = 'serum-rose'").run();
+  // Even later order changes must not replace the durable queued payload.
+  const changed = { ...getCrmOrder("generic-history"), items: [] };
+  assert.equal(buildCreateParcelInput({ payload: frozen }, changed).nature,
+    "Sérum original (500 ml / Rose) ×2 ; Chargeur test (Standard) ×1");
+  const provider = getProvider();
+  const calls = [];
+  await drainSubmissions({ createParcel: async (input) => { calls.push(input); return provider.createParcel(input); } });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].nature, buildCreateParcelInput({ payload: frozen }, changed).nature);
+  const bl = await createOrResumeBl([submissionId], actor);
+  assert.equal(handoffBl(bl.bl.id, actor.id).results.every((result) => result.ok), true);
+  await pollOnce();
+  const ret = ensureReturn(submissionId, "Retour manuel après expédition");
+  markReturnReceived(ret.id, actor.id);
+  receiveReturnLines(submissionId, "generic-history", [
+    { variantId: "serum-rose", sellableQty: 1, damagedQty: 1 },
+    { variantId: "v", sellableQty: 1, damagedQty: 0 },
+  ], actor.id, ret.id);
+  assert.deepEqual(db.prepare("SELECT variant_id, dispatched_qty, sellable_qty, damaged_qty FROM return_lines WHERE return_id = ? ORDER BY variant_id").all(ret.id), [
+    { variant_id: "serum-rose", dispatched_qty: 2, sellable_qty: 1, damaged_qty: 1 },
+    { variant_id: "v", dispatched_qty: 1, sellable_qty: 1, damaged_qty: 0 },
+  ]);
+  assert.deepEqual(db.prepare("SELECT physical, reserved, quarantine FROM stock_balances WHERE variant_id = 'serum-rose' AND location = 'MAIN'").get(), { physical: 3, reserved: 0, quarantine: 1 });
+  assert.equal(httpCalls.length, 0);
+});
+
+test("shipment descriptions keep string options, accepted bonus quantities and bounded Unicode", () => {
+  const base = { name: "Sérum", variant_label: "", options: [{ name: "Contenance", value: "500 ml" }], quantity: 2 };
+  assert.equal(shipmentDescription([base]), "Sérum (Contenance : 500 ml) ×2");
+  assert.equal(shipmentDescription([]), "Articles");
+  const long = shipmentDescription([{ ...base, name: "🧴".repeat(300) }]);
+  assert.equal(Array.from(long).length, 255);
+  assert.equal(long.includes("\uFFFD"), false);
+  const item = { product_id: "p", variant_id: "v", sku: "v", name: "Chargeur test", variant_label: "Standard", options: [], quantity: 1, unit_price: 300, line_total: 300 };
+  const order = { id: "payload-only", customerName: "Cliente", customerPhone: "+212612345678",
+    address: "12 rue test", cityId: 1, cityName: "Casablanca", total: 479,
+    items: [item], upsellStatus: "accepted", upsellItems: [{ ...item, name: "Article bonus", unit_price: 150, line_total: 150 }] };
+  const snapshot = buildSnapshotObject(order);
+  assert.deepEqual(snapshot.items.map((line) => [line.variant_id, line.quantity]), [["v", 1], ["v", 1]]);
+  assert.equal(buildCreateParcelInput({ payload: JSON.stringify(snapshot) }, order).nature,
+    "Chargeur test (Standard) ×1 ; Article bonus (Standard) ×1");
+  assert.equal(buildSnapshotObject({ ...order, upsellStatus: "declined" }).items.length, 1);
 });

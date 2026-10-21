@@ -9,6 +9,7 @@ import {
 import { requireUser } from "@/lib/auth-guards";
 import { listProducts } from "@/lib/services/catalog";
 import { listCities } from "@/lib/services/orders";
+import { getStoreSettings } from "@/lib/services/store-settings";
 
 export const metadata: Metadata = {
   title: "Nouvelle commande — CRM",
@@ -20,6 +21,7 @@ export default async function NewManualOrderPage() {
 
   const allProducts = listProducts();
   const cities = listCities();
+  const { shippingFeeMad, freeShippingThresholdMad } = getStoreSettings();
 
   // Project minimal serializable active catalog options
   const products: SerializableProduct[] = allProducts
@@ -31,10 +33,10 @@ export default async function NewManualOrderPage() {
       variants: product.variants
         .filter((variant) => variant.active)
         .map((variant) => ({
-          variantId: variant.variantId,
+          variantId: variant.id,
           sku: variant.sku,
-          size: variant.size,
-          colorName: variant.colorName,
+          label: variant.label,
+          options: variant.options,
           available: variant.available,
         })),
     }))
@@ -58,7 +60,7 @@ export default async function NewManualOrderPage() {
         </p>
       </div>
 
-      <ManualOrderForm products={products} cities={cities} />
+      <ManualOrderForm products={products} cities={cities} shippingRules={{ shippingFeeMad, freeShippingThresholdMad }} />
     </div>
   );
 }

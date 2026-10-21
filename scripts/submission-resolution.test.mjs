@@ -5,11 +5,13 @@ import path from "node:path";
 import { after, test } from "node:test";
 import { loadSource } from "./test-source.mjs";
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "zehri-resolution-"));
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-resolution-"));
 process.env.DB_PATH = path.join(tempDir, "test.db");
+process.env.UPLOAD_DIR = path.join(tempDir, "uploads");
 process.env.DELIVERY_PROVIDER = "mock";
 process.env.OZON_CLIENT_ID = "";
 process.env.OZON_API_KEY = "";
+globalThis.fetch = async () => { throw new Error("HTTP disabled in isolated fulfillment tests"); };
 
 const { createOrder, getDb } = loadSource("@/lib/db");
 const { confirmOrder, cancelOrder, ConfirmationError } = loadSource("@/lib/services/confirmation");
@@ -27,9 +29,8 @@ after(() => {
 });
 
 db.prepare(`INSERT INTO products (id, slug, name, category, price, created_at, updated_at)
-  VALUES ('p', 'p', 'Bottines test', 'bottines', 300, ?, ?)`).run(now, now);
-db.prepare("INSERT INTO product_colors (id, product_id, name) VALUES ('c', 'p', 'Noir')").run();
-db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES ('v', 'p', 'c', '38', 'v')").run();
+  VALUES ('p', 'p', 'Chargeur test', 'accessoires', 300, ?, ?)`).run(now, now);
+db.prepare("INSERT INTO variants (id, product_id, sku, label, options_json, options_key) VALUES ('v', 'p', 'v', 'Standard', '[]', '[]')").run();
 openStock("v", 50, actor.id);
 db.prepare("INSERT INTO cities (id, name, updated_at) VALUES (1, 'Casablanca', ?)").run(now);
 
@@ -37,7 +38,7 @@ let n = 0;
 function confirmed(status) {
   const id = `r${++n}`;
   createOrder({ id, customerName: "Cliente", customerPhone: "+212612345678",
-    items: [{ product_id: "p", name: "Bottines test", color: "Noir", size: "38", quantity: 1, unit_price: 300, line_total: 300 }],
+    items: [{ product_id: "p", variant_id: "v", sku: "v", name: "Chargeur test", variant_label: "Standard", options: [], quantity: 1, unit_price: 300, line_total: 300 }],
     upsellOffer: null, subtotal: 300, shipping: 29, total: 329 });
   const { submissionId } = confirmOrder(id, { lines: [{ lineIndex: 0, variantId: "v" }], address: "12 rue test", cityId: 1 }, actor);
   if (status !== "queued") db.prepare("UPDATE courier_submissions SET status = ?, last_error = 'timeout' WHERE id = ?").run(status, submissionId);

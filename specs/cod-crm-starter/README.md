@@ -97,9 +97,9 @@ Task 05 implements against the shared typed catalog port, with final runtime bin
 - [x] [task-12-stock-workspace](./tasks/task-12-stock-workspace.md) — Generic stock screens
 - [x] [task-13-settings-shell](./tasks/task-13-settings-shell.md) — Store settings and neutral shell
 ### Wave 6
-- [ ] [task-14-fulfillment](./tasks/task-14-fulfillment.md) — Generic parcel descriptions and returns
-- [ ] [task-15-order-workspace](./tasks/task-15-order-workspace.md) — Generic order UI and handlers
-- [ ] [task-16-storefront-client](./tasks/task-16-storefront-client.md) — Typed client and Next.js examples
+- [x] [task-14-fulfillment](./tasks/task-14-fulfillment.md) — Generic parcel descriptions and returns
+- [x] [task-15-order-workspace](./tasks/task-15-order-workspace.md) — Generic order UI and handlers
+- [x] [task-16-storefront-client](./tasks/task-16-storefront-client.md) — Typed client and Next.js examples
 ### Wave 7
 - [ ] [task-17-crm-assistant](./tasks/task-17-crm-assistant.md) — Preserve optional read-only assistant
 - [ ] [task-18-catalog-agent](./tasks/task-18-catalog-agent.md) — Preserve optional catalog automation

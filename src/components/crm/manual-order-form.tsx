@@ -31,13 +31,14 @@ import {
   type ManualOrderSource,
 } from "@/lib/manual-order-schema";
 import { normalizeMaPhone } from "@/lib/phone";
-import { formatMad, shippingFor } from "@/lib/pricing";
+import { formatMad, shippingFor, type ShippingRules } from "@/lib/pricing";
+import type { VariantOption } from "@/lib/commerce-types";
 
 export interface SerializableVariant {
   variantId: string;
   sku: string;
-  size: string;
-  colorName: string;
+  label: string;
+  options: VariantOption[];
   available: number;
 }
 
@@ -56,13 +57,13 @@ export interface SerializableCity {
 export interface ManualOrderFormProps {
   products: SerializableProduct[];
   cities: SerializableCity[];
+  shippingRules: ShippingRules;
 }
 
 interface OrderLineItem {
   id: string;
   productId: string;
-  colorName: string;
-  size: string;
+  variantId: string;
   quantity: number;
 }
 
@@ -72,7 +73,7 @@ interface SubmittedSnapshot {
 }
 
 const fieldClassName =
-  "w-full border-input bg-card text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring";
+  "w-full min-w-0 border-input bg-card text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate";
 
 function isPayloadDifferent(a: ManualOrderInput, b: ManualOrderInput): boolean {
   if (a.customer.name.trim() !== b.customer.name.trim()) return true;
@@ -100,7 +101,7 @@ function isPayloadDifferent(a: ManualOrderInput, b: ManualOrderInput): boolean {
   return false;
 }
 
-export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
+export function ManualOrderForm({ products, cities, shippingRules }: ManualOrderFormProps) {
   const router = useRouter();
   const formUid = useId();
 
@@ -125,8 +126,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
     {
       id: "line_1",
       productId: products.length === 1 ? products[0].id : "",
-      colorName: "",
-      size: "",
+      variantId: products.length === 1 && products[0].variants.length === 1 ? products[0].variants[0].variantId : "",
       quantity: 1,
     },
   ]);
@@ -169,10 +169,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
   const getLineVariant = useCallback(
     (line: OrderLineItem): SerializableVariant | undefined => {
       const p = productsMap.get(line.productId);
-      if (!p || !line.colorName || !line.size) return undefined;
-      return p.variants.find(
-        (v) => v.colorName === line.colorName && v.size === line.size,
-      );
+      return p?.variants.find((v) => v.variantId === line.variantId);
     },
     [productsMap],
   );
@@ -194,14 +191,14 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
     let sub = 0;
     for (const line of lines) {
       const p = productsMap.get(line.productId);
-      if (p) {
+      if (p && getLineVariant(line)) {
         sub += p.price * line.quantity;
       }
     }
     return sub;
-  }, [lines, productsMap]);
+  }, [lines, productsMap, getLineVariant]);
 
-  const shipping = shippingFor(itemsSubtotal);
+  const shipping = itemsSubtotal === 0 ? 0 : shippingFor(itemsSubtotal, shippingRules);
   const estimatedTotal = itemsSubtotal + shipping;
 
   // Line modification handlers
@@ -211,8 +208,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
       {
         id: "line_" + Math.random().toString(36).slice(2, 9),
         productId: products.length === 1 ? products[0].id : "",
-        colorName: "",
-        size: "",
+        variantId: products.length === 1 && products[0].variants.length === 1 ? products[0].variants[0].variantId : "",
         quantity: 1,
       },
     ]);
@@ -225,15 +221,6 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
 
   function handleProductChange(index: number, newProductId: string) {
     const newProduct = productsMap.get(newProductId);
-    const availableColors = newProduct
-      ? Array.from(new Set(newProduct.variants.map((v) => v.colorName)))
-      : [];
-    const autoColor = availableColors.length === 1 ? availableColors[0] : "";
-    let autoSize = "";
-    if (autoColor && newProduct) {
-      const sizesForColor = newProduct.variants.filter((v) => v.colorName === autoColor);
-      if (sizesForColor.length === 1) autoSize = sizesForColor[0].size;
-    }
 
     setLines((prev) =>
       prev.map((line, i) =>
@@ -241,38 +228,16 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
           ? {
               ...line,
               productId: newProductId,
-              colorName: autoColor,
-              size: autoSize,
+              variantId: newProduct?.variants.length === 1 ? newProduct.variants[0].variantId : "",
             }
           : line,
       ),
     );
   }
 
-  function handleColorChange(index: number, newColor: string) {
-    const product = productsMap.get(lines[index].productId);
-    let autoSize = "";
-    if (product && newColor) {
-      const sizesForColor = product.variants.filter((v) => v.colorName === newColor);
-      if (sizesForColor.length === 1) autoSize = sizesForColor[0].size;
-    }
-
+  function handleVariantChange(index: number, variantId: string) {
     setLines((prev) =>
-      prev.map((line, i) =>
-        i === index
-          ? {
-              ...line,
-              colorName: newColor,
-              size: autoSize,
-            }
-          : line,
-      ),
-    );
-  }
-
-  function handleSizeChange(index: number, newSize: string) {
-    setLines((prev) =>
-      prev.map((line, i) => (i === index ? { ...line, size: newSize } : line)),
+      prev.map((line, i) => (i === index ? { ...line, variantId } : line)),
     );
   }
 
@@ -406,7 +371,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
         }
       }
       if (hasIncomplete) {
-        errors.items = "Veuillez choisir un produit, une couleur et une pointure pour chaque article.";
+        errors.items = "Veuillez choisir un produit et une variante pour chaque article.";
       }
     }
 
@@ -414,7 +379,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
     for (const [variantId, totalQty] of variantTotals.entries()) {
       if (totalQty > 10) {
         const vInfo = variantsMap.get(variantId);
-        const name = vInfo ? `${vInfo.product.name} (${vInfo.variant.colorName} ${vInfo.variant.size})` : "Un article";
+        const name = vInfo ? `${vInfo.product.name} (${vInfo.variant.label || "Standard"} · SKU ${vInfo.variant.sku})` : "Un article";
         errors.items = `La quantité cumulée pour « ${name} » dépasse 10 (actuellement ${totalQty}).`;
         break;
       }
@@ -467,8 +432,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
         restoredLines.push({
           id: "line_restored_" + i,
           productId: vInfo.product.id,
-          colorName: vInfo.variant.colorName,
-          size: vInfo.variant.size,
+          variantId: item.variantId,
           quantity: item.qty,
         });
       }
@@ -505,8 +469,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
       {
         id: "line_1",
         productId: products.length === 1 ? products[0].id : "",
-        colorName: "",
-        size: "",
+        variantId: products.length === 1 && products[0].variants.length === 1 ? products[0].variants[0].variantId : "",
         quantity: 1,
       },
     ]);
@@ -732,7 +695,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
               Articles commandés <span className="text-[var(--crm-danger)]">*</span>
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Sélectionnez les produits, couleurs et pointures demandés par le client.
+              Sélectionnez les produits et variantes demandés par le client.
             </p>
           </div>
           {products.length > 5 ? (
@@ -758,12 +721,6 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
         <div className="mt-4 space-y-4">
           {lines.map((line, index) => {
             const product = productsMap.get(line.productId);
-            const availableColors = product
-              ? Array.from(new Set(product.variants.map((v) => v.colorName)))
-              : [];
-            const variantsForColor = product && line.colorName
-              ? product.variants.filter((v) => v.colorName === line.colorName)
-              : [];
             const selectedVariant = getLineVariant(line);
             const variantTotalQty = selectedVariant
               ? variantTotals.get(selectedVariant.variantId) ?? line.quantity
@@ -801,11 +758,11 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_2fr_6rem]">
                   {/* Product select */}
                   <div>
                     <Label className="text-[11px] font-medium text-muted-foreground">
-                      Modèle <span className="text-[var(--crm-danger)]">*</span>
+                      Produit <span className="text-[var(--crm-danger)]">*</span>
                     </Label>
                     <div className="mt-1">
                       <Select
@@ -813,10 +770,10 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
                         onValueChange={(val) => handleProductChange(index, val)}
                         disabled={isSubmitting}
                       >
-                        <SelectTrigger className={fieldClassName}>
-                          <SelectValue placeholder="Choisir un modèle…" />
+                        <SelectTrigger className={`${fieldClassName} min-w-0`} aria-label={`Produit de l’article ${index + 1}`}>
+                          <SelectValue placeholder="Choisir un produit…" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-2rem)] [&_[data-slot=select-item]]:whitespace-normal [&_[data-slot=select-item]]:break-words">
                           {filteredProducts.map((p) => (
                             <SelectItem key={p.id} value={p.id}>
                               {p.name} ({formatMad(p.price)})
@@ -827,53 +784,26 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
                     </div>
                   </div>
 
-                  {/* Color select */}
+                  {/* Stable variant ID, arbitrary option values */}
                   <div>
                     <Label className="text-[11px] font-medium text-muted-foreground">
-                      Couleur <span className="text-[var(--crm-danger)]">*</span>
+                      Variante · options · SKU <span className="text-[var(--crm-danger)]">*</span>
                     </Label>
                     <div className="mt-1">
                       <Select
-                        value={line.colorName}
-                        onValueChange={(val) => handleColorChange(index, val)}
-                        disabled={isSubmitting || !line.productId || availableColors.length === 0}
+                        value={line.variantId}
+                        onValueChange={(val) => handleVariantChange(index, val)}
+                        disabled={isSubmitting || !product}
                       >
-                        <SelectTrigger className={fieldClassName}>
+                        <SelectTrigger className={`${fieldClassName} min-w-0`} aria-label={`Variante de l’article ${index + 1}`}>
                           <SelectValue
-                            placeholder={!line.productId ? "D'abord choisir le modèle" : "Choisir une couleur…"}
+                            placeholder={!product ? "D'abord choisir le produit" : "Choisir une variante…"}
                           />
                         </SelectTrigger>
-                        <SelectContent>
-                          {availableColors.map((color) => (
-                            <SelectItem key={color} value={color}>
-                              {color}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  {/* Size select */}
-                  <div>
-                    <Label className="text-[11px] font-medium text-muted-foreground">
-                      Pointure / Taille <span className="text-[var(--crm-danger)]">*</span>
-                    </Label>
-                    <div className="mt-1">
-                      <Select
-                        value={line.size}
-                        onValueChange={(val) => handleSizeChange(index, val)}
-                        disabled={isSubmitting || !line.colorName || variantsForColor.length === 0}
-                      >
-                        <SelectTrigger className={fieldClassName}>
-                          <SelectValue
-                            placeholder={!line.colorName ? "D'abord choisir la couleur" : "Choisir la pointure…"}
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {variantsForColor.map((v) => (
-                            <SelectItem key={v.variantId} value={v.size}>
-                              {v.size}{" "}
+                        <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-2rem)] [&_[data-slot=select-item]]:whitespace-normal [&_[data-slot=select-item]]:break-words">
+                          {product?.variants.map((v) => (
+                            <SelectItem key={v.variantId} value={v.variantId}>
+                              {v.label || "Standard"}{v.options.length ? ` · ${v.options.map((o) => `${o.name} : ${o.value}`).join(" / ")}` : ""} · SKU {v.sku}{" "}
                               {v.available > 0
                                 ? `(${v.available} en stock)`
                                 : "(0 en stock — rupture)"}
@@ -895,7 +825,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
                         onValueChange={(val) => handleQuantityChange(index, Number(val))}
                         disabled={isSubmitting}
                       >
-                        <SelectTrigger className={fieldClassName}>
+                        <SelectTrigger className={fieldClassName} aria-label={`Quantité de l’article ${index + 1}`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -915,7 +845,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
                   <div className="mt-3 flex items-center gap-1.5 rounded-md border border-[var(--crm-warning)]/30 bg-[var(--crm-warning-bg)] px-2.5 py-1.5 text-xs text-[var(--crm-warning)]">
                     <AlertTriangleIcon className="size-3.5 shrink-0" aria-hidden />
                     <span>
-                      Rupture de stock (0 paire disponible). La commande sera créée en Nouvelle, mais le stock devra être disponible à la confirmation.
+                      Rupture de stock (0 unité disponible). La commande sera créée en Nouvelle, mais le stock devra être disponible à la confirmation.
                     </span>
                   </div>
                 ) : null}
@@ -951,7 +881,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
             variant="outline"
             size="sm"
             onClick={handleAddLine}
-            disabled={isSubmitting}
+            disabled={isSubmitting || lines.length >= 50}
             className="border-border text-foreground hover:bg-muted"
           >
             <PlusIcon className="mr-1.5 size-3.5" aria-hidden />
@@ -1077,7 +1007,7 @@ export function ManualOrderForm({ products, cities }: ManualOrderFormProps) {
                   {itemsSubtotal === 0
                     ? "—"
                     : shipping === 0
-                    ? "Offerte (≥ 400 MAD)"
+                    ? `Offerte (dès ${formatMad(shippingRules.freeShippingThresholdMad)})`
                     : formatMad(shipping)}
                 </span>
               </div>

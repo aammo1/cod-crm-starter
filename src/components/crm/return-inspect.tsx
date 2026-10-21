@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import type { VariantOption } from "@/lib/commerce-types";
+import { orderItemLabel } from "@/lib/order-item-label";
 
 const fieldClassName =
   "w-full border-input bg-background text-foreground placeholder:text-muted-foreground/50 focus-visible:border-ring focus-visible:ring-ring/20";
@@ -56,10 +58,10 @@ export function ReceiveReturnButton({ returnId }: { returnId: string }) {
 export interface InspectLine {
   lineIndex: number;
   name: string;
-  color: string;
-  size: string;
+  variant_label: string;
+  options: VariantOption[];
   quantity: number;
-  /** True for an accepted-upsell line (paire bonus). */
+  /** True for an accepted-upsell line. */
   upsell: boolean;
   /** False when the line's variant was not dispatched (cannot be restocked). */
   inspectable: boolean;
@@ -73,13 +75,13 @@ interface SplitInput {
 function UpsellBadge() {
   return (
     <span className="ml-2 inline-flex shrink-0 items-center rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-primary">
-      Paire bonus
+      Article bonus
     </span>
   );
 }
 
 function lockedLineNote(): string {
-  return "Cette variante ne figure pas parmi les paires expédiées — inspection manuelle requise.";
+  return "Cette variante ne figure pas parmi les articles expédiés — inspection manuelle requise.";
 }
 
 export function ReturnInspectForm({
@@ -128,7 +130,7 @@ export function ReturnInspectForm({
       }
       if (s + d > line.quantity) {
         toast.error(
-          `${line.name} : ${s + d} paire(s) déclarée(s) pour ${line.quantity} commandée(s).`,
+          `${line.name} : ${s + d} unité(s) déclarée(s) pour ${line.quantity} commandée(s).`,
         );
         return;
       }
@@ -137,7 +139,7 @@ export function ReturnInspectForm({
       }
     }
     if (payloadLines.length === 0) {
-      toast.error("Indiquez au moins une paire vendable ou endommagée.");
+      toast.error("Indiquez au moins une unité vendable ou endommagée.");
       return;
     }
     busyRef.current = true;
@@ -168,8 +170,8 @@ export function ReturnInspectForm({
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Comptez les paires reçues : les paires vendables retournent en stock, les
-        paires endommagées partent en quarantaine.
+        Comptez les unités reçues : les unités vendables retournent en stock, les
+        unités endommagées partent en quarantaine.
       </p>
       <ul className="space-y-3">
         {lines.map((line) => {
@@ -185,11 +187,7 @@ export function ReturnInspectForm({
                 className="rounded-lg border border-border bg-muted/20 p-3 opacity-60"
               >
                 <p className="text-sm font-medium text-foreground">
-                  {line.name}
-                  <span className="text-muted-foreground">
-                    {" "}
-                    ×{line.quantity} ({line.color} / {line.size})
-                  </span>
+                  {orderItemLabel(line)}
                   {line.upsell ? <UpsellBadge /> : null}
                 </p>
                 <p className="mt-1.5 text-xs text-[var(--crm-warning)]">
@@ -204,11 +202,7 @@ export function ReturnInspectForm({
               className="rounded-lg border border-border bg-muted/20 p-3"
             >
               <p className="text-sm font-medium text-foreground">
-                {line.name}
-                <span className="text-muted-foreground">
-                  {" "}
-                  ×{line.quantity} ({line.color} / {line.size})
-                </span>
+                {orderItemLabel(line)}
                 {line.upsell ? <UpsellBadge /> : null}
               </p>
               <div className="mt-2 grid grid-cols-2 gap-3">
@@ -257,7 +251,7 @@ export function ReturnInspectForm({
               </div>
               {over ? (
                 <p className="mt-1.5 text-xs text-[var(--crm-danger)]">
-                  Total déclaré supérieur aux {line.quantity} paire(s) commandée(s).
+                  Total déclaré supérieur aux {line.quantity} unité(s) commandée(s).
                 </p>
               ) : null}
             </li>
@@ -274,7 +268,7 @@ export function ReturnInspectForm({
           value={reason}
           onChange={(event) => setReason(event.target.value)}
           maxLength={500}
-          placeholder="Ex. pointure non conforme, abîmé transport…"
+          placeholder="Ex. article non conforme, abîmé pendant le transport…"
           aria-required="true"
           className={fieldClassName}
         />
@@ -286,7 +280,7 @@ export function ReturnInspectForm({
       </div>
       {!anyInspectable ? (
         <p className="text-xs text-[var(--crm-danger)]">
-          Aucune paire réintégrable automatiquement pour ce retour — inspection
+          Aucune unité réintégrable automatiquement pour ce retour — inspection
           manuelle requise.
         </p>
       ) : null}

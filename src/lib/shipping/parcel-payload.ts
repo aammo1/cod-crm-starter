@@ -1,6 +1,8 @@
 import { toOzonPhone } from "@/lib/phone";
-import type { OrderRow } from "@/lib/db";
+import type { CrmOrder } from "@/lib/services/orders";
 import type { CreateParcelInput } from "./provider";
+import type { CommerceOrderItem } from "@/lib/commerce-types";
+import { shipmentDescription } from "@/lib/order-item-label";
 
 export interface ParcelPayloadSnapshot {
   order_id: string;
@@ -10,16 +12,12 @@ export interface ParcelPayloadSnapshot {
   city_id: number | null;
   city_name: string | null;
   total: number;
-  items: {
-    product_id: string;
-    name: string;
-    color: string;
-    size: string;
-    quantity: number;
-  }[];
+  items: Omit<CommerceOrderItem, "unit_price" | "line_total">[];
 }
 
-export function buildSnapshotObject(order: OrderRow): ParcelPayloadSnapshot {
+type ParcelOrder = Pick<CrmOrder, "id" | "customerName" | "customerPhone" | "address" | "cityId" | "cityName" | "total" | "items" | "upsellStatus" | "upsellItems">;
+
+export function buildSnapshotObject(order: ParcelOrder): ParcelPayloadSnapshot {
   const upsellItems =
     order.upsellStatus === "accepted" ? (order.upsellItems ?? []) : [];
   return {
@@ -33,21 +31,23 @@ export function buildSnapshotObject(order: OrderRow): ParcelPayloadSnapshot {
     items: [...order.items, ...upsellItems].map((item) => ({
       product_id: item.product_id,
       name: item.name,
-      color: item.color,
-      size: item.size,
+      variant_id: item.variant_id,
+      sku: item.sku,
+      variant_label: item.variant_label,
+      options: item.options.map((option) => ({ ...option })),
       quantity: item.quantity,
     })),
   };
 }
 
 /** Frozen snapshot of the parcel data at job-creation time — later order edits never alter an already-queued parcel. */
-export function buildPayloadSnapshot(order: OrderRow): string {
+export function buildPayloadSnapshot(order: ParcelOrder): string {
   return JSON.stringify(buildSnapshotObject(order));
 }
 
 function snapshotFrom(
   payloadJson: string | null,
-  order: OrderRow,
+  order: ParcelOrder,
 ): ParcelPayloadSnapshot {
   if (payloadJson) {
     try {
@@ -71,7 +71,7 @@ function snapshotFrom(
 
 export function buildCreateParcelInput(
   submission: { payload: string | null },
-  order: OrderRow,
+  order: ParcelOrder,
 ): CreateParcelInput {
   const snapshot = snapshotFrom(submission.payload, order);
   return {
@@ -80,7 +80,7 @@ export function buildCreateParcelInput(
     cityId: snapshot.city_id ?? 0,
     address: snapshot.address ?? "",
     priceMad: snapshot.total,
-    nature: "Chaussures femme",
+    nature: shipmentDescription(snapshot.items),
     stock: 0,
   };
 }

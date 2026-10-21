@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
-import { getDb, getOrder, type OrderRow } from "@/lib/db";
+import { getDb } from "@/lib/db";
+import { getCrmOrder } from "@/lib/services/orders";
 import { buildPayloadSnapshot } from "@/lib/shipping/parcel-payload";
 
 export type SubmissionStatus =
@@ -68,7 +69,7 @@ function mapSubmissionRow(row: SubmissionsTableRow): SubmissionRow {
  * as a no-op success.
  */
 export function createSubmission(orderId: string): SubmissionRow | null {
-  const order: OrderRow | null = getOrder(orderId);
+  const order = getCrmOrder(orderId);
   if (!order) throw new Error(`Commande introuvable : ${orderId}`);
   const db = getDb();
   const now = new Date().toISOString();
