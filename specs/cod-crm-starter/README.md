@@ -107,4 +107,4 @@ Task 05 implements against the shared typed catalog port, with final runtime bin
 ### Wave 8
 - [x] [task-20-release-integration](./tasks/task-20-release-integration.md) — Close integration gaps and verify release
 ### Wave 9
-- [ ] [task-21-public-template](./tasks/task-21-public-template.md) — Publish `aammo1/cod-crm-starter`
+- [x] [task-21-public-template](./tasks/task-21-public-template.md) — Publish `aammo1/cod-crm-starter`

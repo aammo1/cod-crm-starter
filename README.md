@@ -10,10 +10,9 @@ entiers. Votre storefront conserve son design et appelle le CRM depuis son serve
 
 ## Une installation par boutique
 
-Destination publique du modèle : [aammo1/cod-crm-starter](https://github.com/aammo1/cod-crm-starter).
-Une fois le dépôt publié et l’option template activée, choisir **Use this template →
-Create a new repository**, puis cloner votre copie. Cette documentation ne constitue
-pas une confirmation de publication. Chaque copie possède son propre déploiement,
+Modèle public publié : [aammo1/cod-crm-starter](https://github.com/aammo1/cod-crm-starter).
+L’option template est activée : choisir **Use this template →
+Create a new repository**, puis cloner votre copie. Chaque copie possède son propre déploiement,
 SQLite, médias, utilisateurs, stock et secrets ; elle ne reçoit aucune mise à jour
 automatique du modèle. Voir [les mises à niveau](docs/template-upgrades.md).
 

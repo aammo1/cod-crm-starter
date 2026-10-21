@@ -1,7 +1,7 @@
 # Task 21: Publish the public GitHub template repository
 
 ## Status
-pending
+complete
 
 ## Wave
 9
