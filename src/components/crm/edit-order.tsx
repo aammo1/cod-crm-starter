@@ -11,9 +11,14 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { formatMad, FREE_SHIPPING_THRESHOLD, SHIPPING_FEE } from "@/lib/pricing";
 import { orderEditSchema, orderEditTotals, type DiscountType, type ShippingMode } from "@/lib/order-edit-schema";
 import type { OrderEditSnapshot } from "@/lib/services/order-edits";
+import type { VariantOption } from "@/lib/commerce-types";
 
 interface Option {
-  variantId: string; productId: string; name: string; color: string; size: string; price: number; available: number;
+  variantId: string; productId: string; name: string; sku: string; label: string; options: VariantOption[]; price: number; available: number;
+}
+
+function optionDescription(variant: Option): string {
+  return `${variant.name} · ${variant.label}${variant.options.length ? ` · ${variant.options.map((option) => `${option.name} : ${option.value}`).join(" / ")}` : ""} · SKU ${variant.sku}`;
 }
 interface Line {
   key: number; variantId: string; qty: number; productId: string; name: string; upsellIndex?: number; upsellPrice?: number;
@@ -28,7 +33,7 @@ export function EditOrder({ orderId, revision, snapshot, options, children }: {
   const busy = useRef(false);
   const nextKey = useRef(snapshot.items.length + snapshot.upsellItems.length);
   const initialLines = (): Line[] => [...snapshot.items, ...snapshot.upsellItems].map((item, index) => ({
-    key: index, variantId: options.find((v) => v.productId === item.product_id && v.color === item.color && v.size === item.size)?.variantId ?? "",
+    key: index, variantId: item.variant_id,
     qty: item.quantity, productId: item.product_id, name: item.name,
     ...(index >= snapshot.items.length ? { upsellIndex: index - snapshot.items.length, upsellPrice: item.unit_price } : {}),
   }));
@@ -45,7 +50,7 @@ export function EditOrder({ orderId, revision, snapshot, options, children }: {
     ? sum + (options.find((o) => o.variantId === line.variantId)?.price ?? 0) * line.qty : sum, 0);
   const upsellSubtotal = lines.reduce((sum, line) => sum + (line.upsellPrice ?? 0) * line.qty, 0);
   const totals = orderEditTotals(regularSubtotal, upsellSubtotal, discountType, Number(discountValue), shippingMode);
-  const filteredOptions = options.filter((v) => `${v.name} ${v.color} ${v.size}`.toLocaleLowerCase("fr").includes(query.toLocaleLowerCase("fr")));
+  const filteredOptions = options.filter((v) => optionDescription(v).toLocaleLowerCase("fr").includes(query.toLocaleLowerCase("fr")));
 
   function reset() {
     setLines(initialLines()); setDiscountType(snapshot.discountType); setDiscountValue(String(snapshot.discountValue));
@@ -100,11 +105,11 @@ export function EditOrder({ orderId, revision, snapshot, options, children }: {
               return <fieldset key={line.key} className="grid min-w-0 gap-3 rounded-lg border border-border p-3 sm:grid-cols-[minmax(0,1fr)_5rem_auto]">
                 <legend className="px-1 text-xs font-medium text-muted-foreground">Article {index + 1}{line.upsellIndex !== undefined ? " · Upsell −30 %" : ""}</legend>
                 <label className="flex min-w-0 flex-col gap-2 text-sm">
-                  <span>Produit · couleur · taille</span>
+                   <span>Produit · variante · SKU</span>
                   <Select value={line.variantId} disabled={saving} onValueChange={(variantId) => setLines(lines.map((l) => l.key === line.key ? { ...l, variantId } : l))}>
                     <SelectTrigger className="w-full min-w-0" aria-label={`Variante de l’article ${index + 1}`}><SelectValue placeholder={`${line.name} — choisir une variante`} /></SelectTrigger>
                     <SelectContent><SelectGroup>{options.filter((v) => line.upsellIndex === undefined || v.productId === line.productId).map((v) =>
-                      <SelectItem key={v.variantId} value={v.variantId}>{v.name} · {v.color} / {v.size} · {v.available} disponible(s)</SelectItem>)}</SelectGroup></SelectContent>
+                      <SelectItem key={v.variantId} value={v.variantId}>{optionDescription(v)} · {v.available} disponible(s)</SelectItem>)}</SelectGroup></SelectContent>
                   </Select>
                   <span className="text-xs text-muted-foreground">{formatMad(line.upsellPrice ?? selected?.price ?? 0)} / unité{selected ? ` · Stock : ${selected.available}` : " · Sélection requise"}</span>
                 </label>
@@ -119,11 +124,11 @@ export function EditOrder({ orderId, revision, snapshot, options, children }: {
           </div>
           <fieldset className="flex min-w-0 flex-col gap-3 rounded-lg border border-dashed border-border p-4">
             <legend className="px-1 text-sm font-medium">Ajouter un article</legend>
-            <Input aria-label="Rechercher un produit" placeholder="Rechercher un produit, une couleur, une taille…" value={query} onChange={(e) => { setQuery(e.target.value); setAddVariant(""); }} />
+            <Input aria-label="Rechercher un produit" placeholder="Rechercher un produit, une variante, un SKU…" value={query} onChange={(e) => { setQuery(e.target.value); setAddVariant(""); }} />
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
               <Select value={addVariant} disabled={saving} onValueChange={setAddVariant}>
                 <SelectTrigger className="w-full min-w-0" aria-label="Article à ajouter"><SelectValue placeholder={filteredOptions.length ? "Choisir une variante" : "Aucun résultat"} /></SelectTrigger>
-                <SelectContent><SelectGroup>{filteredOptions.map((v) => <SelectItem key={v.variantId} value={v.variantId} disabled={v.available < 1}>{v.name} · {v.color} / {v.size} · {formatMad(v.price)} · Stock {v.available}</SelectItem>)}</SelectGroup></SelectContent>
+                <SelectContent><SelectGroup>{filteredOptions.map((v) => <SelectItem key={v.variantId} value={v.variantId} disabled={v.available < 1}>{optionDescription(v)} · {formatMad(v.price)} · Stock {v.available}</SelectItem>)}</SelectGroup></SelectContent>
               </Select>
               <Button type="button" variant="secondary" disabled={!addVariant || lines.length >= 50} onClick={() => {
                 const v = options.find((o) => o.variantId === addVariant);

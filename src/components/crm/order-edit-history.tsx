@@ -5,7 +5,9 @@ import type { OrderEditHistory, OrderEditSnapshot } from "@/lib/services/order-e
 function Snapshot({ value }: { value: OrderEditSnapshot }) {
   return <div className="flex flex-col gap-2 text-sm">
     <ul className="flex flex-col gap-1">{[...value.items, ...value.upsellItems].map((item, index) =>
-      <li key={index}>{item.quantity} × {item.name} · {item.color} / {item.size}{index >= value.items.length ? " · Upsell" : ""} — {formatMad(item.line_total)}</li>)}</ul>
+      <li key={index}>{item.quantity} × {item.name} · {item.variant_label}
+        {item.options.length ? ` · ${item.options.map((option) => `${option.name} : ${option.value}`).join(" / ")}` : ""}
+        {` · SKU ${item.sku}`}{index >= value.items.length ? " · Upsell" : ""} — {formatMad(item.line_total)}</li>)}</ul>
     <p>Remise : {formatMad(value.discountAmount)}{value.discountType === "percent" ? ` (${value.discountValue} %)` : ""} · Livraison : {formatMad(value.shipping)} ({({ auto: "automatique", free: "gratuite", paid: "payante" })[value.shippingMode]})</p>
     <p className="font-semibold">À encaisser : {formatMad(value.total)}</p>
   </div>;

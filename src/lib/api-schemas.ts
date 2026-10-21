@@ -113,16 +113,20 @@ export const confirmOrderSchema = z.object({
     .array(
       z.object({
         lineIndex: z.number().int().min(0),
-        variantId: z.string().trim().min(1, "Variante requise").max(64),
-      }),
+        variantId: z.string().trim().min(1, "Variante requise").max(200),
+      }).strict(),
     )
-    .min(1, "Sélectionnez une variante pour chaque article."),
+    .max(100, "Trop de lignes."),
   address: z
     .string()
     .trim()
     .min(1, "Adresse requise")
     .max(500, "Adresse trop longue"),
   cityId: z.number().int().min(1, "Ville requise"),
+}).strict().superRefine((input, ctx) => {
+  if (new Set(input.lines.map((line) => line.lineIndex)).size !== input.lines.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["lines"], message: "Ligne en double." });
+  }
 });
 
 export const cancelOrderSchema = z.object({
@@ -135,8 +139,8 @@ export const cancelOrderSchema = z.object({
 
 export const orderLineUpdateSchema = z.object({
   lineIndex: z.number().int().min(0),
-  variantId: z.string().trim().min(1, "Variante requise").max(64),
-});
+  variantId: z.string().trim().min(1, "Variante requise").max(200),
+}).strict();
 
 export const createBlSchema = z.object({
   submissionIds: z

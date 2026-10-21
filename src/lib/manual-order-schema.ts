@@ -18,7 +18,7 @@ export const MANUAL_ORDER_SOURCE_LABELS: Record<ManualOrderSource, string> = {
 };
 
 export const manualOrderItemSchema = z.object({
-  variantId: z.string().trim().min(1, "Variante requise"),
+  variantId: z.string().trim().min(1, "Variante requise").max(200),
   qty: z
     .number({
       required_error: "La quantité est requise",
@@ -27,7 +27,7 @@ export const manualOrderItemSchema = z.object({
     .int("La quantité doit être un entier")
     .min(1, "La quantité minimale est 1")
     .max(10, "La quantité maximale par article est 10"),
-});
+}).strict();
 
 export type ManualOrderItemInput = z.infer<typeof manualOrderItemSchema>;
 
@@ -40,7 +40,7 @@ export const manualOrderInputSchema = z
     customer: z.object({
       name: nameSchema,
       phone: phoneSchema,
-    }),
+    }).strict(),
     items: z
       .array(manualOrderItemSchema)
       .min(1, "Au moins un article est requis")
@@ -67,6 +67,7 @@ export const manualOrderInputSchema = z
       .nullish()
       .transform((val) => (val && val.length > 0 ? val : undefined)),
   })
+  .strict()
   .superRefine((data, ctx) => {
     const aggregated = new Map<string, number>();
     for (let i = 0; i < data.items.length; i++) {

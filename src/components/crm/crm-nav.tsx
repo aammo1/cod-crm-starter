@@ -18,6 +18,7 @@ export const CRM_NAV_LINKS: CrmNavLink[] = [
   { href: "/crm/stock", label: "Stock" },
   { href: "/crm/equipe", label: "Équipe", adminOnly: true },
   { href: "/admin", label: "Catalogue produits", adminOnly: true },
+  { href: "/crm/parametres", label: "Paramètres", adminOnly: true },
 ];
 
 export function getCrmCurrentSectionTitle(pathname: string): string {

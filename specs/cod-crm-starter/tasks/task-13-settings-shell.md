@@ -1,7 +1,7 @@
 # Task 13: Add store settings and neutral CRM navigation
 
 ## Status
-pending
+complete
 
 ## Wave
 5

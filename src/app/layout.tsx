@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { Toaster } from "@/components/ui/sonner";
+import { getStoreSettings } from "@/lib/services/store-settings";
 import "./globals.css";
 
 const playfair = localFont({
@@ -24,15 +25,19 @@ const inter = localFont({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: {
-    default: "COD CRM — Gestion des commandes",
-    template: "%s | COD CRM",
-  },
-  description:
-    "Gestion des commandes, du stock et des livraisons au Maroc.",
-  robots: { index: false, follow: false },
-};
+export const dynamic = "force-dynamic";
+
+export function generateMetadata(): Metadata {
+  const { storeName } = getStoreSettings();
+  return {
+    title: {
+      default: `${storeName} — Gestion des commandes`,
+      template: `%s | ${storeName}`,
+    },
+    description: "Gestion des commandes, du stock et des livraisons au Maroc.",
+    robots: { index: false, follow: false },
+  };
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

@@ -8,7 +8,7 @@ import type {
 import { requireUser } from "@/lib/auth-guards";
 import { getDb } from "@/lib/db";
 import { listProducts } from "@/lib/services/catalog";
-import { balancesByProduct, listMovements } from "@/lib/services/inventory";
+import { DEFAULT_LOCATION, listStockVariants, listMovements } from "@/lib/services/inventory";
 import { formatCasablanca } from "@/lib/services/orders";
 
 export const metadata: Metadata = {
@@ -21,7 +21,7 @@ export default async function StockPage() {
   const isAdmin = user.role === "admin";
 
   const products = listProducts({ includeInactive: true });
-  const balances = balancesByProduct(products.map((product) => product.id));
+  const productImages = new Map(products.map((product) => [product.id, product.images]));
 
   const openingRows = getDb()
     .prepare(
@@ -33,31 +33,20 @@ export default async function StockPage() {
   );
   const movedVariants = new Set((getDb().prepare("SELECT DISTINCT variant_id FROM stock_movements").all() as Array<{ variant_id: string }>).map((row) => row.variant_id));
 
-  const variantRows: StockVariantRow[] = products.flatMap((product) =>
-    product.variants.map((variant) => {
-      const balance = balances.get(variant.variantId);
+  const variantRows: StockVariantRow[] = listStockVariants({ includeInactive: true }).map(
+    (variant) => {
       const openedAt = openedAtByVariant.get(variant.variantId) ?? null;
       return {
-        productId: product.id,
-        colorId: variant.colorId,
-        canOpen: !movedVariants.has(variant.variantId) && !(balance?.physical || balance?.reserved || balance?.quarantine),
-        variantId: variant.variantId,
-        sku: variant.sku,
-        productName: product.name,
-        colorName: variant.colorName,
-        size: variant.size,
-        physical: balance?.physical ?? 0,
-        reserved: balance?.reserved ?? 0,
-        quarantine: balance?.quarantine ?? 0,
-        available: balance?.available ?? 0,
+        ...variant,
+        label: variant.label.trim() || "Standard",
+        images: variant.images.length ? variant.images : productImages.get(variant.productId) ?? [],
+        canOpen: !movedVariants.has(variant.variantId) && !(variant.physical || variant.reserved || variant.quarantine),
         openedAt,
         openedAtLabel: openedAt ? formatCasablanca(openedAt) : null,
       };
-    }),
+    },
   );
 
-  const variantBySku = new Map<string, StockVariantRow>();
-  for (const row of variantRows) variantBySku.set(row.sku, row);
   const variantById = new Map<string, StockVariantRow>();
   for (const row of variantRows) variantById.set(row.variantId, row);
 
@@ -65,8 +54,8 @@ export default async function StockPage() {
     (movement) => {
       const variant = variantById.get(movement.variant_id);
       const label = variant
-        ? `${variant.sku} — ${variant.productName} (${variant.colorName} / ${variant.size})`
-        : (variantBySku.get(movement.variant_id)?.sku ?? movement.variant_id);
+        ? `${variant.sku} — ${variant.productName} (${variant.label}${variant.options.length ? ` · ${variant.options.map((option) => `${option.name} : ${option.value}`).join(" · ")}` : ""})${!variant.active || !variant.productActive ? " · Archivé" : ""}`
+        : movement.variant_id;
       return {
         id: movement.id,
         dateLabel: formatCasablanca(movement.created_at),
@@ -83,11 +72,11 @@ export default async function StockPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-semibold text-2xl text-foreground">Stock</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Disponible = physique − quarantaine − réservé · entrepôt ZEHRI
+          Disponible = physique − quarantaine − réservé · entrepôt {DEFAULT_LOCATION}
         </p>
       </div>
 

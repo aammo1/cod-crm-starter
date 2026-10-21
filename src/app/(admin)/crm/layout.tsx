@@ -10,11 +10,15 @@ import { CrmNav } from "@/components/crm/crm-nav";
 import { CrmMobileNav } from "@/components/crm/crm-mobile-nav";
 import { CrmAssistant } from "@/components/crm/crm-assistant";
 import { requireUser } from "@/lib/auth-guards";
+import { getStoreSettings } from "@/lib/services/store-settings";
 
-export const metadata: Metadata = {
-  title: "CRM Zehri",
-  robots: { index: false },
-};
+export function generateMetadata(): Metadata {
+  const { storeName } = getStoreSettings();
+  return {
+    title: { default: "CRM", template: `%s | ${storeName}` },
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function CrmLayout({
   children,
@@ -22,6 +26,7 @@ export default async function CrmLayout({
   children: React.ReactNode;
 }) {
   const user = await requireUser();
+  const { storeName } = getStoreSettings();
   const isAdmin = user.role === "admin";
   const displayName = user.name ?? user.email ?? "Utilisateur";
 
@@ -36,9 +41,9 @@ export default async function CrmLayout({
         {/* Desktop Sidebar */}
         <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-border bg-card px-4 py-6 md:flex">
           <div className="mb-6 flex items-center justify-between px-3">
-            <Link href="/crm" className="block">
-              <p className="text-xl font-bold tracking-tight text-foreground">
-                Zehri CRM
+            <Link href="/crm" className="block min-w-0">
+              <p className="break-words text-xl font-bold tracking-tight text-foreground">
+                {storeName}
               </p>
               <p className="text-xs text-muted-foreground">Espace équipe</p>
             </Link>
@@ -73,6 +78,7 @@ export default async function CrmLayout({
         {/* Mobile Header + Main Content */}
         <div className="flex min-w-0 flex-1 flex-col">
           <CrmMobileNav
+            storeName={storeName}
             userName={displayName}
             userRole={user.role}
             isAdmin={isAdmin}

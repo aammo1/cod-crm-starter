@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
 import { nanoid } from "nanoid";
-import { getDb, getOrder, hasOrderFulfillmentHistory, type OrderItem } from "@/lib/db";
-import { orderEditSchema, orderEditTotals, type DiscountType, type ShippingMode } from "@/lib/order-edit-schema";
-import { listProducts } from "@/lib/services/catalog";
+import { getDb, hasOrderFulfillmentHistory } from "@/lib/db";
+import type { CommerceOrderItem as OrderItem } from "@/lib/commerce-types";
+import { orderEditSchema, type DiscountType, type ShippingMode } from "@/lib/order-edit-schema";
+import { listProducts, getVariantById } from "@/lib/services/catalog";
+import { getCrmOrder as getOrder } from "@/lib/services/orders";
+import { MissingOrderShippingRulesError, orderLineSnapshot, orderShippingRules, replaceOrderVariant } from "@/lib/services/order-lines";
+import { shippingFor } from "@/lib/pricing";
 import { availableFor } from "@/lib/services/inventory";
 
 export class OrderEditError extends Error {
@@ -52,8 +56,10 @@ function readState(orderId: string) {
     discountType: raw.discount_type, discountValue: raw.discount_value,
     discountAmount: raw.discount_amount, shippingMode: raw.shipping_mode,
   };
+  const lastEdit = getDb().prepare("SELECT id FROM order_edits WHERE order_id = ? ORDER BY rowid DESC LIMIT 1")
+    .get(orderId) as { id: string } | undefined;
   return {
-    revision: createHash("sha256").update(JSON.stringify(raw)).digest("hex"),
+    revision: createHash("sha256").update(JSON.stringify([raw, lastEdit?.id ?? null])).digest("hex"),
     editable: !raw.archived_at && ["new", "no_answer", "call_back_later"].includes(order.confirmationStatus)
       && !hasOrderFulfillmentHistory(orderId),
     snapshot,
@@ -66,8 +72,8 @@ export function getOrderEditState(orderId: string) {
 
 export function orderEditOptions() {
   return listProducts().filter((p) => p.active).flatMap((p) => p.variants.filter((v) => v.active).map((v) => ({
-    variantId: v.variantId, productId: p.id, name: p.name, color: v.colorName,
-    size: v.size, price: p.price, available: v.available,
+    variantId: v.id, productId: p.id, name: p.name, sku: v.sku,
+    label: v.label, options: v.options, price: p.price, available: v.available,
   })));
 }
 
@@ -94,16 +100,12 @@ export function editOrder(orderId: string, body: unknown, actor: { id: string; n
     const quantities = new Map<string, number>();
     const usedUpsells = new Set<number>();
     for (const line of input.lines) {
-      const variant = db.prepare(`SELECT v.product_id, v.size, c.name AS color, p.name, p.price
-        FROM variants v JOIN products p ON p.id = v.product_id JOIN product_colors c ON c.id = v.color_id
-        WHERE v.id = ? AND v.active = 1 AND p.active = 1`).get(line.variantId) as {
-          product_id: string; size: string; color: string; name: string; price: number;
-        } | undefined;
-      if (!variant) throw new OrderEditError(400, "Un produit ou une variante n'est plus disponible.");
+      const variant = getVariantById(line.variantId);
+      if (!variant || !variant.active || !variant.productActive) throw new OrderEditError(400, "Un produit ou une variante n'est plus disponible.");
       let unitPrice = variant.price;
       if (line.upsellIndex !== undefined) {
         const original = before.snapshot.upsellItems[line.upsellIndex];
-        if (!original || usedUpsells.has(line.upsellIndex) || original.product_id !== variant.product_id || line.qty > original.quantity) {
+        if (!original || usedUpsells.has(line.upsellIndex) || original.product_id !== variant.productId || line.qty > original.quantity) {
           throw new OrderEditError(400, "L'offre upsell existante ne peut pas être étendue ou transférée à un autre produit.");
         }
         usedUpsells.add(line.upsellIndex);
@@ -112,20 +114,35 @@ export function editOrder(orderId: string, body: unknown, actor: { id: string; n
       const qty = (quantities.get(line.variantId) ?? 0) + line.qty;
       quantities.set(line.variantId, qty);
       if (qty > 10) throw new OrderEditError(400, "Maximum 10 unités par variante, toutes lignes confondues.");
-      if (availableFor(line.variantId) < qty) throw new OrderEditError(409, `Stock insuffisant : ${variant.name} — ${variant.color} / ${variant.size}.`);
-      const item: OrderItem = { product_id: variant.product_id, name: variant.name, color: variant.color,
-        size: variant.size, quantity: line.qty, unit_price: unitPrice, line_total: unitPrice * line.qty };
+      if (availableFor(line.variantId) < qty) throw new OrderEditError(409, `Stock insuffisant : ${variant.product.name} — ${variant.label}.`);
+      const original = line.upsellIndex === undefined ? null : before.snapshot.upsellItems[line.upsellIndex];
+      const item: OrderItem = original
+        ? { ...replaceOrderVariant(original, variant), quantity: line.qty, line_total: unitPrice * line.qty }
+        : orderLineSnapshot(variant, variant.product.name, unitPrice, line.qty);
       (line.upsellIndex === undefined ? items : upsellItems).push(item);
     }
     const regularSubtotal = items.reduce((sum, i) => sum + i.line_total, 0);
     if (input.discountType === "fixed" && input.discountValue > regularSubtotal) {
       throw new OrderEditError(400, "La remise ne peut pas dépasser le montant des articles hors upsell.");
     }
-    const totals = orderEditTotals(regularSubtotal, upsellItems.reduce((sum, i) => sum + i.line_total, 0),
-      input.discountType, input.discountValue, input.shippingMode);
+    const subtotal = regularSubtotal + upsellItems.reduce((sum, i) => sum + i.line_total, 0);
+    const discountAmount = input.discountType === "percent" ? Math.round(regularSubtotal * input.discountValue / 100)
+      : input.discountType === "fixed" ? input.discountValue : 0;
+    const rules = (() => {
+      try { return orderShippingRules(orderId); }
+      catch (error) {
+        if (error instanceof MissingOrderShippingRulesError) throw new OrderEditError(409, error.message);
+        throw error;
+      }
+    })();
+    const shipping = input.shippingMode === "free" ? 0 : input.shippingMode === "paid" ? rules.shippingFeeMad
+      : shippingFor(subtotal - discountAmount, rules);
+    const totals = { subtotal, discountAmount, shipping, total: subtotal - discountAmount + shipping };
     const after: OrderEditSnapshot = { items, upsellItems, ...totals, discountType: input.discountType,
       discountValue: input.discountValue, shippingMode: input.shippingMode };
     const now = new Date().toISOString();
+    // Close together with the final lines/totals so the Meta trigger freezes
+    // this audited revision, never the pre-edit pending order.
     db.prepare(`UPDATE orders SET items_json = ?, upsell_items_json = ?, upsell_status = ?,
       subtotal = ?, shipping = ?, total = ?, discount_type = ?, discount_value = ?, discount_amount = ?,
       shipping_mode = ?, updated_at = ? WHERE id = ?`).run(

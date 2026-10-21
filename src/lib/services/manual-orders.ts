@@ -1,12 +1,17 @@
 import crypto from "node:crypto";
 import { nanoid } from "nanoid";
-import { getDb, type OrderItem } from "@/lib/db";
+import { getDb } from "@/lib/db";
+import type { CommerceOrderItem as OrderItem } from "@/lib/commerce-types";
 import { shippingFor } from "@/lib/pricing";
 import { normalizeMaPhone } from "@/lib/phone";
-import { listProducts } from "@/lib/services/catalog";
+import { getVariantById } from "@/lib/services/catalog";
+import { getStoreSettings } from "@/lib/services/store-settings";
+import { setAppState } from "@/lib/services/app-state";
+import { orderLineSnapshot, orderRulesKey } from "@/lib/services/order-lines";
 import {
   type ManualOrderInput,
   MANUAL_ORDER_SOURCE_LABELS,
+  manualOrderInputSchema,
 } from "@/lib/manual-order-schema";
 
 export class ManualOrderError extends Error {
@@ -98,6 +103,9 @@ export function createManualOrder(
   actor: { id: string },
 ): CreateManualOrderResult {
   const db = getDb();
+  const parsed = manualOrderInputSchema.safeParse(input);
+  if (!parsed.success) throw new ManualOrderError(400, parsed.error.issues[0]?.message ?? "Requête invalide.");
+  input = parsed.data;
   const canonical = buildCanonicalPayload(input);
   const payloadHash = computePayloadHash(canonical);
 
@@ -179,58 +187,26 @@ export function createManualOrder(
     }
 
     // 4. Catalog variant resolution
-    const products = listProducts();
-    const activeVariants = new Map<
-      string,
-      {
-        productId: string;
-        productName: string;
-        price: number;
-        colorName: string;
-        size: string;
-      }
-    >();
-
-    for (const product of products) {
-      if (!product.active) continue;
-      for (const variant of product.variants) {
-        if (variant.active) {
-          activeVariants.set(variant.variantId, {
-            productId: product.id,
-            productName: product.name,
-            price: product.price,
-            colorName: variant.colorName,
-            size: variant.size,
-          });
-        }
-      }
-    }
-
     const items: OrderItem[] = [];
     for (const line of canonical.items) {
-      const variantInfo = activeVariants.get(line.variantId);
-      if (!variantInfo) {
+      const variantInfo = getVariantById(line.variantId);
+      if (!variantInfo || !variantInfo.active || !variantInfo.productActive) {
         throw new ManualOrderError(
           400,
           `Variante « ${line.variantId} » introuvable ou inactive dans le catalogue.`,
         );
       }
-      items.push({
-        product_id: variantInfo.productId,
-        name: variantInfo.productName,
-        color: variantInfo.colorName,
-        size: variantInfo.size,
-        quantity: line.qty,
-        unit_price: variantInfo.price,
-        line_total: variantInfo.price * line.qty,
-      });
+      items.push(orderLineSnapshot(variantInfo, variantInfo.product.name, variantInfo.price, line.qty));
     }
 
     const subtotal = items.reduce((sum, item) => sum + item.line_total, 0);
-    const shipping = shippingFor(subtotal);
+    const rules = getStoreSettings();
+    const shipping = shippingFor(subtotal, rules);
     const total = subtotal + shipping;
 
     const orderId = `ord_${nanoid(12)}`;
+    setAppState(orderRulesKey(orderId), JSON.stringify({ shippingFeeMad: rules.shippingFeeMad,
+      freeShippingThresholdMad: rules.freeShippingThresholdMad }));
     const now = new Date().toISOString();
 
     // 5. Insert order

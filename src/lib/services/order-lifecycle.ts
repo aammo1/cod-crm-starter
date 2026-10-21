@@ -1,5 +1,6 @@
 import { getDb, hasOrderFulfillmentHistory } from "@/lib/db";
 import type { SessionUser } from "@/lib/auth-guards";
+import { orderRulesKey } from "@/lib/services/order-lines";
 
 export class OrderLifecycleError extends Error {
   constructor(readonly status: 400 | 403 | 404 | 409, message: string) {
@@ -37,12 +38,16 @@ export function changeOrderLifecycle(
           db.prepare("SELECT 1 FROM submission_resolutions WHERE order_id = ? LIMIT 1").get(id)) {
           throw new OrderLifecycleError(409, "Suppression impossible : une commande possède un historique de stock ou d’expédition. Conservez-la dans les archives.");
         }
+        if (db.prepare("SELECT 1 FROM storefront_request_receipts WHERE order_id = ? LIMIT 1").get(id)) {
+          throw new OrderLifecycleError(409, "Conservez cette commande dans les archives : ses reçus de commande doivent rester rejouables.");
+        }
         // Remove only this order's durable conversion jobs, including pending jobs.
         db.prepare("DELETE FROM meta_events WHERE event_id IN (SELECT event_id FROM meta_purchases WHERE order_id = ?)").run(id);
         for (const table of ["meta_purchases", "manual_order_requests", "order_contacts"]) {
           db.prepare(`DELETE FROM ${table} WHERE order_id = ?`).run(id);
         }
         db.prepare("DELETE FROM orders WHERE id = ?").run(id);
+        db.prepare("DELETE FROM app_state WHERE key = ?").run(orderRulesKey(id));
       } else if (action === "archive") {
         db.prepare("UPDATE orders SET archived_at = ?, archived_by = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL")
           .run(now, actor.id, now, id);

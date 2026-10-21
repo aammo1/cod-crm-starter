@@ -92,10 +92,10 @@ Task 05 implements against the shared typed catalog port, with final runtime bin
 - [x] [task-08-catalog-management](./tasks/task-08-catalog-management.md) — Product management UI and routes
 - [x] [task-09-catalog-api](./tasks/task-09-catalog-api.md) — Published catalog endpoints
 ### Wave 5
-- [ ] [task-10-order-operations](./tasks/task-10-order-operations.md) — Confirmation, manual orders, and edits
-- [ ] [task-11-order-api](./tasks/task-11-order-api.md) — Idempotent checkout and upsell endpoints
-- [ ] [task-12-stock-workspace](./tasks/task-12-stock-workspace.md) — Generic stock screens
-- [ ] [task-13-settings-shell](./tasks/task-13-settings-shell.md) — Store settings and neutral shell
+- [x] [task-10-order-operations](./tasks/task-10-order-operations.md) — Confirmation, manual orders, and edits
+- [x] [task-11-order-api](./tasks/task-11-order-api.md) — Idempotent checkout and upsell endpoints
+- [x] [task-12-stock-workspace](./tasks/task-12-stock-workspace.md) — Generic stock screens
+- [x] [task-13-settings-shell](./tasks/task-13-settings-shell.md) — Store settings and neutral shell
 ### Wave 6
 - [ ] [task-14-fulfillment](./tasks/task-14-fulfillment.md) — Generic parcel descriptions and returns
 - [ ] [task-15-order-workspace](./tasks/task-15-order-workspace.md) — Generic order UI and handlers

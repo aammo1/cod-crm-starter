@@ -31,7 +31,8 @@ export async function POST(
     const item = updateOrderLine(id, parsed.data, user);
     return NextResponse.json({
       ok: true,
-      item: { lineIndex: parsed.data.lineIndex, color: item.color, size: item.size },
+      item: { lineIndex: parsed.data.lineIndex, variantId: item.variant_id,
+        sku: item.sku, label: item.variant_label, options: item.options },
     });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();

@@ -28,7 +28,7 @@ import {
 } from "@/components/crm/status-badge";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/auth-guards";
-import type { OrderItem } from "@/lib/db";
+import type { CommerceOrderItem } from "@/lib/commerce-types";
 import { formatMad } from "@/lib/pricing";
 import {
   formatCasablanca,
@@ -59,17 +59,15 @@ function formatOrderSource(source: string | null | undefined): string {
   return source;
 }
 
-function isUpsellItem(item: OrderItem): boolean {
-  return item.color === "—" && item.size === "—";
+function variantDescription(item: CommerceOrderItem): string {
+  return `${item.variant_label}${item.options.length ? ` · ${item.options.map((option) => `${option.name} : ${option.value}`).join(" / ")}` : ""} · SKU ${item.sku}`;
 }
 
 function itemsSummaryForWa(order: CrmOrder): string {
-  const lines = [...order.items, ...(order.upsellItems ?? [])];
+  const lines = [...order.items, ...(order.upsellStatus === "accepted" ? order.upsellItems ?? [] : [])];
   return lines
     .map((item) => {
-      const variant = isUpsellItem(item)
-        ? " (à préciser à la confirmation)"
-        : ` (${item.color} / ${item.size})`;
+      const variant = ` (${variantDescription(item)})`;
       return `• ${item.quantity}× ${item.name}${variant}`;
     })
     .join("\n");
@@ -169,7 +167,7 @@ export default async function OrderDetailPage({
   const editState = getOrderEditState(id);
   const editHistory = listOrderEdits(id);
   const upsellLines = order.upsellStatus === "accepted" ? (order.upsellItems ?? []) : [];
-  const allLines: Array<OrderItem & { upsell: boolean }> = [
+  const allLines: Array<CommerceOrderItem & { upsell: boolean }> = [
     ...order.items.map((item) => ({ ...item, upsell: false })),
     ...upsellLines.map((item) => ({ ...item, upsell: true })),
   ];
@@ -230,8 +228,10 @@ export default async function OrderDetailPage({
             lineIndex: index,
             productId: item.product_id,
             productName: item.name,
-            color: item.color,
-            size: item.size,
+            variantId: item.variant_id,
+            label: item.variant_label,
+            options: item.options,
+            sku: item.sku,
             quantity: item.quantity,
             upsell: item.upsell,
           }))}
@@ -310,13 +310,7 @@ export default async function OrderDetailPage({
                         ) : null}
                       </td>
                       <td className="py-2 pr-4 text-muted-foreground">
-                        {isUpsellItem(item) ? (
-                          <span className="text-muted-foreground">
-                            À préciser à la confirmation
-                          </span>
-                        ) : (
-                          `${item.color} / ${item.size}`
-                        )}
+                        {variantDescription(item)}
                       </td>
                       <td className="py-2 pr-4 text-muted-foreground">×{item.quantity}</td>
                       <td className="py-2 pr-4 whitespace-nowrap text-muted-foreground">

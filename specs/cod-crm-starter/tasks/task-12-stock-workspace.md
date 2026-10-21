@@ -1,7 +1,7 @@
 # Task 12: Adapt the CRM stock workspace to generic variants
 
 ## Status
-pending
+complete
 
 ## Wave
 5

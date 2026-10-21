@@ -15,6 +15,7 @@ import { CrmNav, getCrmCurrentSectionTitle } from "@/components/crm/crm-nav";
 import { CrmThemeToggle } from "@/components/crm/crm-theme-toggle";
 
 export interface CrmMobileNavProps {
+  storeName: string;
   userName: string;
   userRole: "admin" | "agent";
   isAdmin: boolean;
@@ -22,6 +23,7 @@ export interface CrmMobileNavProps {
 }
 
 export function CrmMobileNav({
+  storeName,
   userName,
   userRole,
   isAdmin,
@@ -51,7 +53,7 @@ export function CrmMobileNav({
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border bg-card px-4 md:hidden">
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         <Button
           type="button"
           variant="ghost"
@@ -64,9 +66,9 @@ export function CrmMobileNav({
           <MenuIcon className="size-5" aria-hidden="true" />
         </Button>
 
-        <div className="flex flex-col">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Zehri CRM
+        <div className="flex min-w-0 flex-col">
+          <span className="truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+            {storeName}
           </span>
           <span className="text-sm font-bold text-foreground">
             {currentTitle}
@@ -88,10 +90,10 @@ export function CrmMobileNav({
             <Link
               href="/crm"
               onClick={() => setOpen(false)}
-              className="flex flex-col"
+              className="flex min-w-0 flex-col"
             >
-              <SheetTitle className="text-lg font-bold text-foreground">
-                Zehri CRM
+              <SheetTitle className="break-words text-lg font-bold text-foreground">
+                {storeName}
               </SheetTitle>
               <span className="text-xs text-muted-foreground">
                 Espace équipe

@@ -1,7 +1,7 @@
 # Task 10: Adapt confirmation, manual orders and order editing
 
 ## Status
-pending
+complete
 
 ## Wave
 5

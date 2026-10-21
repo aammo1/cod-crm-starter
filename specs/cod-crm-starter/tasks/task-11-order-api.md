@@ -1,7 +1,7 @@
 # Task 11: Expose retry-safe storefront checkout and upsell APIs
 
 ## Status
-pending
+complete
 
 ## Wave
 5

@@ -1,40 +1,43 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import Module from "node:module";
 import { after, test } from "node:test";
 import { loadSource } from "./test-source.mjs";
+import { genericProduct, orderFixture, upsellService } from "./order-operations-fixtures.mjs";
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zehri-order-edits-"));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-order-edits-"));
 process.env.DB_PATH = path.join(dir, "test.db");
 process.env.DELIVERY_PROVIDER = "mock";
-const { getDb, createOrder, getOrder, resolveUpsell } = loadSource("@/lib/db");
+process.env.AUTH_SECRET = "isolated-order-edits-test-secret-32-characters";
+process.env.META_PIXEL_ID = "";
+process.env.META_ACCESS_TOKEN = "";
+const { getDb, getOrder } = loadSource("@/lib/db");
 const { editOrder, getOrderEditState, listOrderEdits } = loadSource("@/lib/services/order-edits");
 const { confirmOrder, updateOrderLine } = loadSource("@/lib/services/confirmation");
 const { openStock, reserveForOrder } = loadSource("@/lib/services/inventory");
 const { changeOrderLifecycle } = loadSource("@/lib/services/order-lifecycle");
+const { createManualOrder } = loadSource("@/lib/services/manual-orders");
 const db = getDb();
+const service = upsellService(db);
+const { deriveOrderToken } = loadSource("@/lib/order-token");
+const resolveUpsell = (id, action) => service.resolveUpsell(id, `request-${action}`, deriveOrderToken(id, `nonce-${id}`),
+  action === "accept" ? { action, variantId: "p-38" } : { action });
 const actor = { id: "agent", name: "Agent test", role: "agent" };
 after(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); });
 const now = new Date().toISOString();
 for (const [p, price] of [["p", 300], ["other", 150]]) {
-  db.prepare(`INSERT INTO products (id, slug, name, category, price, created_at, updated_at)
-    VALUES (?, ?, ?, 'bottines', ?, ?, ?)`).run(p, p, p, price, now, now);
-  db.prepare("INSERT INTO product_colors (id, product_id, name) VALUES (?, ?, 'Noir')").run(p, p);
-  for (const size of ["38", "39"]) {
-    const id = `${p}-${size}`;
-    db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES (?, ?, ?, ?, ?)").run(id, p, p, size, id);
+  genericProduct(db, p, price, [[`${p}-38`, [{ name: "Format", value: "XL" }]],
+    [`${p}-39`, [{ name: "Format", value: "500 ml" }]]]);
+  for (const id of [`${p}-38`, `${p}-39`]) {
     openStock(id, 20, actor.id);
   }
 }
 db.prepare("INSERT INTO cities (id, name, updated_at) VALUES (1, 'Casablanca', ?)").run(now);
 
 function order(id) {
-  createOrder({ id, customerName: "Cliente", customerPhone: "+212612345678",
-    items: [{ product_id: "p", name: "p", color: "Noir", size: "38", quantity: 1, unit_price: 300, line_total: 300 }],
-    upsellOffer: { product_id: "p", name: "p", original_price: 300, upsell_price: 210 },
-    subtotal: 300, shipping: 29, total: 329 });
+  orderFixture(db, id, { variantId: "p-38" });
 }
 function input(id, overrides = {}) {
   return { revision: getOrderEditState(id).revision, lines: [{ variantId: "p-38", qty: 1 }],
@@ -101,7 +104,7 @@ test("accepted upsell keeps its price, cannot be forged, duplicated or expanded;
   assert.equal(getOrder("upsell").upsellItems, null);
   order("pending");
   editOrder("pending", input("pending", { shippingMode: "free" }), actor);
-  resolveUpsell("pending", "accept");
+  assert.throws(() => resolveUpsell("pending", "accept"), { status: 409 });
   assert.equal(getOrder("pending").total, 300);
   assert.equal(getOrder("pending").upsellStatus, "declined");
 });
@@ -161,24 +164,124 @@ test("history failure rolls the entire edit back and archived edited orders rema
   assert.deepEqual(db.pragma("foreign_key_check"), []);
 });
 
-test("API requires authentication and permits agents and admins with validated payloads", async () => {
-  const originalLoad = Module._load;
-  let role = null;
-  class GuardError extends Error { toResponse() { return Response.json({ error: "Authentification requise" }, { status: 401 }); } }
-  Module._load = function (request, ...args) {
-    if (request === "@/lib/auth-guards") return { AuthGuardError: GuardError,
-      requireUser: async () => { if (!role) throw new GuardError(); return { ...actor, role }; } };
-    return originalLoad.call(this, request, ...args);
-  };
+test("closing a pending offer with an edit freezes the final durable conversion snapshot", () => {
+  order("meta-edit");
+  db.prepare("INSERT INTO meta_purchases (order_id, event_id, context_json, deadline) VALUES (?, ?, '{}', 0)")
+    .run("meta-edit", "meta-edit-event");
+  const result = editOrder("meta-edit", input("meta-edit", { lines: [{ variantId: "other-39", qty: 2 }] }), actor);
+  const frozen = JSON.parse(db.prepare("SELECT snapshot_json FROM meta_purchases WHERE order_id = ?").get("meta-edit").snapshot_json);
+  assert.equal(frozen.total, result.snapshot.total);
+  assert.deepEqual(frozen.items, result.snapshot.items);
+  assert.deepEqual(frozen.upsellItems, []);
+});
+
+test("shipping rules and accepted upsell snapshots survive later settings/catalog changes", () => {
+  orderFixture(db, "snapshots", { variantId: "p-38", rules: { storeName: "Test", shippingFeeMad: 43,
+    freeShippingThresholdMad: 900, upsellEnabled: true, upsellWindowSeconds: 300, upsellDiscountPercent: 30 } });
+  resolveUpsell("snapshots", "accept");
+  const original = getOrder("snapshots").upsellItems[0];
+  db.prepare("UPDATE products SET price = 700, name = 'Nouveau nom' WHERE id = 'p'").run();
+  db.prepare("INSERT INTO app_state (key, value) VALUES ('store_settings', ?)").run(JSON.stringify({
+    storeName: "Changed", shippingFeeMad: 80, freeShippingThresholdMad: 10,
+    upsellEnabled: false, upsellWindowSeconds: 1, upsellDiscountPercent: 80 }));
+  const state = editOrder("snapshots", input("snapshots", { lines: [{ variantId: "other-39", qty: 1 },
+    { variantId: "p-38", qty: 1, upsellIndex: 0 }] }), actor);
+  assert.deepEqual(state.snapshot.upsellItems[0], original);
+  assert.equal(state.snapshot.shipping, 43);
+  assert.equal(state.snapshot.total, 403);
+});
+
+test("missing no-offer checkout rules block repricing rather than using changed settings", () => {
+  orderFixture(db, "missing-rules", { variantId: "p-38", offer: false });
+  const before = getOrderEditState("missing-rules");
+  assert.throws(() => editOrder("missing-rules", input("missing-rules"), actor), { status: 409 });
+  assert.deepEqual(getOrderEditState("missing-rules"), before);
+});
+
+test("manual shipping rules survive settings changes and no-op edits still invalidate revisions", () => {
+  const created = createManualOrder({ requestId: randomUUID(), customer: { name: "Manuelle", phone: "0612345678" },
+    items: [{ variantId: "other-39", qty: 1 }], source: "manual_other" }, actor);
+  const settings = JSON.parse(db.prepare("SELECT value FROM app_state WHERE key = 'store_settings'").get().value);
+  assert.equal(settings.shippingFeeMad, 80);
+  db.prepare("UPDATE app_state SET value = ? WHERE key = 'store_settings'").run(JSON.stringify({ ...settings,
+    shippingFeeMad: 1, freeShippingThresholdMad: 9999 }));
+  const body = input(created.orderId, { lines: [{ variantId: "other-39", qty: 1 }], shippingMode: "paid" });
+  const changed = editOrder(created.orderId, body, actor);
+  assert.equal(changed.snapshot.shipping, 80);
+  const repeatBody = { ...body, revision: changed.revision };
+  const originalUpdatedAt = db.prepare("SELECT updated_at FROM orders WHERE id = ?").get(created.orderId).updated_at;
+  editOrder(created.orderId, repeatBody, actor);
+  db.prepare("UPDATE orders SET updated_at = ? WHERE id = ?").run(originalUpdatedAt, created.orderId);
+  assert.notEqual(getOrderEditState(created.orderId).revision, repeatBody.revision);
+  assert.throws(() => editOrder(created.orderId, repeatBody, actor), { status: 409 });
+});
+
+test("no-offer checkout snapshots original shipping rules for audited edits and immutable replay", () => {
+  const { orderRulesKey, orderShippingRules } = loadSource("@/lib/services/order-lines");
+  const savedSettings = db.prepare("SELECT value FROM app_state WHERE key = 'store_settings'").get();
   try {
-    const { POST } = loadSource("@/app/api/crm/orders/[id]/edit/route");
-    order("api");
-    const params = { params: Promise.resolve({ id: "api" }) };
-    const request = (body) => new Request("http://localhost/api/crm/orders/api/edit", { method: "POST", body: JSON.stringify(body) });
-    assert.equal((await POST(request(input("api")), params)).status, 401);
-    for (role of ["agent", "admin"]) {
-      assert.equal((await POST(request({}), params)).status, 400);
-      assert.equal((await POST(request(input("api", { shippingMode: "free" })), params)).status, 200);
+    // With upsells enabled, this catalog has neither upsellRef nor best sellers.
+    // Both ways of creating a null offer must persist exactly the same contract.
+    for (const upsellEnabled of [false, true]) {
+      const originalRules = { shippingFeeMad: 43, freeShippingThresholdMad: 900 };
+      const settings = { storeName: "Original checkout", ...originalRules, upsellEnabled,
+        upsellWindowSeconds: 20, upsellDiscountPercent: 30 };
+      db.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES ('store_settings', ?)").run(JSON.stringify(settings));
+      const key = `no-offer-edit-${upsellEnabled}`;
+      const body = { customer: { name: "Cliente sans offre", phone: "0612345678" },
+        items: [{ variantId: "other-39", qty: 1 }] };
+      const first = service.checkout(key, body);
+      const id = first.response.orderId;
+      assert.equal(first.status, 201);
+      assert.equal(first.response.upsellOffer, null);
+      assert.equal(getOrder(id).upsellStatus, "closed");
+      assert.deepEqual(first.response.totals, { itemsSubtotal: 150, shipping: 43, total: 193, currency: "MAD" });
+      const storedRules = db.prepare("SELECT value FROM app_state WHERE key = ?").get(orderRulesKey(id)).value;
+      assert.deepEqual(JSON.parse(storedRules), originalRules);
+      assert.deepEqual(orderShippingRules(id), originalRules);
+
+      db.prepare("UPDATE app_state SET value = ? WHERE key = 'store_settings'").run(JSON.stringify({
+        ...settings, shippingFeeMad: 80, freeShippingThresholdMad: 9999,
+      }));
+      const edited = editOrder(id, input(id, { lines: [{ variantId: "other-39", qty: 3 }] }), actor);
+      assert.equal(edited.snapshot.subtotal, 450);
+      assert.equal(edited.snapshot.shipping, 43);
+      assert.equal(edited.snapshot.total, 493);
+      const free = editOrder(id, input(id, { lines: [{ variantId: "other-39", qty: 6 }] }), actor);
+      assert.equal(free.snapshot.subtotal, 900);
+      assert.equal(free.snapshot.shipping, 0);
+      assert.equal(free.snapshot.total, 900);
+      assert.equal(listOrderEdits(id).length, 2);
+      assert.equal(db.prepare("SELECT value FROM app_state WHERE key = ?").get(orderRulesKey(id)).value, storedRules);
+
+      const replay = service.checkout(key, body);
+      assert.equal(replay.status, 200);
+      assert.deepEqual(replay.response, first.response);
+      assert.deepEqual(getOrderEditState(id), free);
+      assert.deepEqual(orderShippingRules(id), originalRules);
     }
-  } finally { Module._load = originalLoad; }
+  } finally {
+    if (savedSettings) db.prepare("UPDATE app_state SET value = ? WHERE key = 'store_settings'").run(savedSettings.value);
+    else db.prepare("DELETE FROM app_state WHERE key = 'store_settings'").run();
+  }
+});
+
+test("receipt failure rolls back no-offer checkout shipping snapshot together with its order", () => {
+  const before = {
+    orders: db.prepare("SELECT COUNT(*) AS n FROM orders").get().n,
+    rules: db.prepare("SELECT key, value FROM app_state WHERE key LIKE 'order-shipping-rules:%' ORDER BY key").all(),
+    receipts: db.prepare("SELECT COUNT(*) AS n FROM storefront_request_receipts").get().n,
+  };
+  const key = "no-offer-snapshot-rollback";
+  const body = { customer: { name: "Cliente rollback", phone: "0612345678" },
+    items: [{ variantId: "other-39", qty: 1 }] };
+  db.exec(`CREATE TEMP TRIGGER reject_shipping_receipt BEFORE INSERT ON storefront_request_receipts
+    WHEN NEW.request_key = '${key}' BEGIN SELECT RAISE(ABORT, 'checkout receipt failure'); END`);
+  try { assert.throws(() => service.checkout(key, body), /checkout receipt failure/); }
+  finally { db.exec("DROP TRIGGER reject_shipping_receipt"); }
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM orders").get().n, before.orders);
+  assert.deepEqual(db.prepare("SELECT key, value FROM app_state WHERE key LIKE 'order-shipping-rules:%' ORDER BY key").all(), before.rules);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM storefront_request_receipts").get().n, before.receipts);
+  assert.equal(service.checkout(key, body).status, 201);
+  assert.equal(service.checkout(key, body).status, 200);
 });

@@ -11,8 +11,10 @@ export interface LoginState {
 
 export function LoginForm({
   action,
+  storeName,
 }: {
   action: (state: LoginState, formData: FormData) => Promise<LoginState>;
+  storeName: string;
 }) {
   const [state, formAction, pending] = useActionState<LoginState, FormData>(action, {
     error: null,
@@ -22,9 +24,9 @@ export function LoginForm({
     <main className="flex min-h-[100dvh] items-center justify-center bg-noir px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <p className="font-display text-4xl font-semibold tracking-wide text-white">
-            Zehri
-          </p>
+          <h1 className="break-words font-display text-4xl font-semibold tracking-wide text-white">
+            {storeName}
+          </h1>
           <p className="mt-2 text-sm text-white/50">Espace équipe</p>
         </div>
 
@@ -43,7 +45,7 @@ export function LoginForm({
                 type="email"
                 required
                 autoComplete="email"
-                placeholder="vous@zehri.ma"
+                placeholder="vous@exemple.ma"
                 className="h-10 border-white/15 bg-white/10 text-white placeholder:text-white/30 focus-visible:border-white/40 focus-visible:ring-white/20"
               />
             </div>

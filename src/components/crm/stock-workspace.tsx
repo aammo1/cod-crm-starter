@@ -24,7 +24,7 @@ export function StockWorkspace({
   isAdmin,
 }: StockWorkspaceProps) {
   return (
-    <TabsPrimitive.Root defaultValue="balances" className="space-y-6">
+    <TabsPrimitive.Root defaultValue="balances" className="flex flex-col gap-6">
       <div className="overflow-x-auto pb-1">
         <TabsPrimitive.List
           aria-label="Espaces de gestion de stock"

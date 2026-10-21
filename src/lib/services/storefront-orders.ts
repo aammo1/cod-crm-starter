@@ -11,6 +11,7 @@ import { normalizeMaPhone } from "@/lib/phone";
 import { shippingFor, upsellPriceFor } from "@/lib/pricing";
 import { DEFAULT_STORE_SETTINGS, storeSettingsSchema } from "@/lib/store-settings-schema";
 import { metaEnabled } from "@/lib/services/meta";
+import { orderRulesKey } from "@/lib/services/order-lines";
 import { createOrderNonce, deriveOrderToken, orderTokenVerifier, verifyOrderToken } from "@/lib/order-token";
 import { StorefrontOrderError, findReceipt, writeReceipt, validateRequestKey, immediateOrderTransaction } from "@/lib/services/request-receipts";
 
@@ -173,6 +174,12 @@ export function createStorefrontOrderService(deps: StorefrontOrderDependencies) 
         insertStorefrontOrder(db, { id, customerName: request.customer.name,
           customerPhone: request.customer.phone, items, offer, nonce, verifier: orderTokenVerifier(token),
           subtotal, shipping: amounts.shipping, total: amounts.total, now: new Date(now).toISOString() });
+        // Every checkout needs historical shipping rules, including disabled or
+        // unavailable upsells. Share manual creation's per-order snapshot contract
+        // and write on this connection so order + rules + receipt commit together.
+        db.prepare("INSERT INTO app_state (key, value) VALUES (?, ?)").run(orderRulesKey(id), JSON.stringify({
+          shippingFeeMad: settings.shippingFeeMad, freeShippingThresholdMad: settings.freeShippingThresholdMad,
+        }));
         if (request.meta && metaEnabled()) {
           const m = request.meta;
           const context = { eventId: m.eventId, sourceUrl: m.sourceUrl, userData: {

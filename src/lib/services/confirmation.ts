@@ -1,5 +1,8 @@
-import { getDb, getOrder, hasOrderFulfillmentHistory, type OrderItem, type OrderRow } from "@/lib/db";
-import { getProductById } from "@/lib/services/catalog";
+import { getDb, closePendingStorefrontUpsell, hasOrderFulfillmentHistory } from "@/lib/db";
+import type { CommerceOrderItem as OrderItem } from "@/lib/commerce-types";
+import { getVariantById } from "@/lib/services/catalog";
+import { replaceOrderVariant } from "@/lib/services/order-lines";
+import { getOrderEditState } from "@/lib/services/order-edits";
 import {
   InsufficientStockError,
   releaseForOrder,
@@ -7,7 +10,7 @@ import {
   type ReserveLine,
   type StockShortage,
 } from "@/lib/services/inventory";
-import { insertContact, type ConfirmationStatus } from "@/lib/services/orders";
+import { getCrmOrder as getOrder, insertContact, type CrmOrder, type ConfirmationStatus } from "@/lib/services/orders";
 import { createSubmission } from "@/lib/services/submissions";
 
 export class ConfirmationError extends Error {
@@ -58,15 +61,6 @@ const CONFIRMABLE_STATUSES: ConfirmationStatus[] = [
   "call_back_later",
 ];
 
-interface VariantLookupRow {
-  id: string;
-  product_id: string;
-  sku: string;
-  size: string;
-  active: number;
-  color_name: string;
-}
-
 interface LatestSubmissionRow {
   id: string;
   status: string;
@@ -82,7 +76,7 @@ interface LatestSubmissionRow {
  * the queued submission back together — all-or-nothing, nothing partial.
  */
 
-function combinedLines(order: OrderRow): Array<{ item: OrderItem; upsell: boolean }> {
+function combinedLines(order: CrmOrder): Array<{ item: OrderItem; upsell: boolean }> {
   const lines = order.items.map((item) => ({ item, upsell: false }));
   if (order.upsellStatus === "accepted") {
     for (const item of order.upsellItems ?? []) {
@@ -90,44 +84,6 @@ function combinedLines(order: OrderRow): Array<{ item: OrderItem; upsell: boolea
     }
   }
   return lines;
-}
-
-function findVariantById(variantId: string): VariantLookupRow | null {
-  return (
-    (getDb()
-      .prepare(
-        `SELECT v.id, v.product_id, v.sku, v.size, v.active, c.name AS color_name
-         FROM variants v
-         JOIN product_colors c ON c.id = v.color_id
-         WHERE v.id = ?`,
-      )
-      .get(variantId) as VariantLookupRow | undefined) ?? null
-  );
-}
-
-function findVariantForLine(
-  productId: string,
-  colorName: string,
-  size: string,
-): VariantLookupRow | null {
-  return (
-    (getDb()
-      .prepare(
-        `SELECT v.id, v.product_id, v.sku, v.size, v.active, c.name AS color_name
-         FROM variants v
-         JOIN product_colors c ON c.id = v.color_id
-         WHERE v.product_id = ? AND c.name = ? AND v.size = ? AND v.active = 1
-         LIMIT 1`,
-      )
-      .get(productId, colorName, size) as VariantLookupRow | undefined) ?? null
-  );
-}
-
-function productActive(productId: string): boolean {
-  const row = getDb()
-    .prepare("SELECT active FROM products WHERE id = ?")
-    .get(productId) as { active: number } | undefined;
-  return row?.active === 1;
 }
 
 function latestSubmission(orderId: string): LatestSubmissionRow | null {
@@ -175,6 +131,10 @@ export function confirmOrder(
     if (order.confirmationStatus === "cancelled") {
       throw new ConfirmationError(409, "Commande annulée — confirmation impossible.");
     }
+    if (order.archivedAt) throw new ConfirmationError(409, "Restaurez la commande avant de la confirmer.");
+    if (!input.address?.trim() || input.address.trim().length > 500 || !Number.isInteger(input.cityId) || input.cityId < 1) {
+      throw new ConfirmationError(400, "Adresse et ville requises.");
+    }
     if (!CONFIRMABLE_STATUSES.includes(order.confirmationStatus)) {
       throw new ConfirmationError(400, "Statut de commande incompatible avec la confirmation.");
     }
@@ -192,13 +152,17 @@ export function confirmOrder(
       throw new ConfirmationError(400, "Ville inconnue — lancez la synchronisation des villes.");
     }
 
-    const lines = combinedLines(order);
+    closePendingStorefrontUpsell(db, orderId);
+    const lines = combinedLines(getOrder(orderId)!);
     if (lines.length === 0) {
       throw new ConfirmationError(400, "La commande ne contient aucun article.");
     }
 
     const overrides = new Map<number, string>();
     for (const line of input.lines) {
+      if (!Number.isInteger(line.lineIndex) || line.lineIndex < 0 || line.lineIndex >= lines.length) {
+        throw new ConfirmationError(400, "Ligne introuvable.");
+      }
       if (overrides.has(line.lineIndex)) {
         throw new ConfirmationError(400, "Ligne en double dans la demande de confirmation.");
       }
@@ -211,46 +175,15 @@ export function confirmOrder(
     for (let index = 0; index < lines.length; index += 1) {
       const { item, upsell } = lines[index];
       const providedVariantId = overrides.get(index);
-      let variant: VariantLookupRow;
-      if (providedVariantId) {
-        const found = findVariantById(providedVariantId);
-        if (!found) {
-          throw new ConfirmationError(400, `Variante introuvable pour ${item.name}.`);
-        }
-        if (found.product_id !== item.product_id) {
-          throw new ConfirmationError(400, `La variante choisie n'appartient pas à ${item.name}.`);
-        }
-        if (found.active !== 1) {
-          throw new ConfirmationError(
-            400,
-            `La variante choisie pour ${item.name} n'est plus disponible.`,
-          );
-        }
-        variant = found;
-      } else if (upsell) {
-        throw new ConfirmationError(
-          400,
-          `Sélectionnez la taille et la couleur pour la ligne upsell (${item.name}).`,
-        );
-      } else {
-        const found = findVariantForLine(item.product_id, item.color, item.size);
-        if (!found) {
-          throw new ConfirmationError(
-            400,
-            `Variante indisponible pour ${item.name} (${item.color} / ${item.size}) — choisissez une autre variante.`,
-          );
-        }
-        variant = found;
+      const variant = getVariantById(providedVariantId ?? item.variant_id);
+      if (!variant || !variant.active || !variant.productActive) {
+        throw new ConfirmationError(400, `Variante indisponible pour ${item.name} — choisissez une autre variante.`);
       }
-      if (!productActive(item.product_id)) {
-        throw new ConfirmationError(400, `Produit indisponible : ${item.name}.`);
+      if (variant.productId !== item.product_id) {
+        throw new ConfirmationError(400, `La variante choisie n'appartient pas à ${item.name}.`);
       }
       reserveLines.push({ variantId: variant.id, qty: item.quantity });
-      const resolved: OrderItem = {
-        ...item,
-        color: variant.color_name,
-        size: variant.size,
-      };
+      const resolved = replaceOrderVariant(item, variant);
       if (upsell) {
         finalUpsellItems.push(resolved);
       } else {
@@ -275,11 +208,10 @@ export function confirmOrder(
     db.prepare(
       `UPDATE orders
        SET confirmation_status = 'confirmed', address = @address, city_id = @cityId,
-           city_name = @cityName, items_json = @itemsJson, updated_at = @updatedAt,
-           upsell_status = CASE WHEN upsell_status = 'pending' THEN 'declined' ELSE upsell_status END
+            city_name = @cityName, items_json = @itemsJson, updated_at = @updatedAt
        WHERE id = @orderId`,
     ).run({
-      address: input.address,
+      address: input.address.trim(),
       cityId: city.id,
       cityName: city.name,
       itemsJson: JSON.stringify(finalItems),
@@ -291,6 +223,15 @@ export function confirmOrder(
         JSON.stringify(finalUpsellItems),
         orderId,
       );
+    }
+
+    if (JSON.stringify(finalItems) !== JSON.stringify(order.items) ||
+        JSON.stringify(finalUpsellItems) !== JSON.stringify(order.upsellItems ?? [])) {
+      const after = getOrderEditState(orderId).snapshot;
+      db.prepare(`INSERT INTO order_edits (id, order_id, actor_id, actor_name, reason, before_json, after_json, created_at)
+        VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?)`).run(orderId, actor.id, actor.name ?? actor.id,
+          "Variantes choisies à la confirmation", JSON.stringify({ ...after, items: order.items,
+            upsellItems: order.upsellItems ?? [] }), JSON.stringify(after), now);
     }
 
     const submission = createSubmission(orderId);
@@ -316,6 +257,7 @@ export function cancelOrder(
     if (order.confirmationStatus === "cancelled") {
       throw new ConfirmationError(409, "Commande déjà annulée");
     }
+    if (!input.reason?.trim()) throw new ConfirmationError(400, "Motif d'annulation requis.");
 
     const submission = latestSubmission(orderId);
     if (submission) {
@@ -346,6 +288,7 @@ export function cancelOrder(
     }
 
     const now = new Date().toISOString();
+    closePendingStorefrontUpsell(db, orderId);
     db.prepare(
       "UPDATE orders SET confirmation_status = 'cancelled', updated_at = ? WHERE id = ?",
     ).run(now, orderId);
@@ -386,7 +329,7 @@ export function updateOrderLine(
 
     const upsellCount =
       order.upsellStatus === "accepted" ? (order.upsellItems?.length ?? 0) : 0;
-    if (input.lineIndex >= order.items.length + upsellCount) {
+    if (!Number.isInteger(input.lineIndex) || input.lineIndex < 0 || input.lineIndex >= order.items.length + upsellCount) {
       throw new ConfirmationError(400, "Ligne introuvable.");
     }
     if (input.lineIndex >= order.items.length) {
@@ -394,31 +337,21 @@ export function updateOrderLine(
     }
 
     const item = order.items[input.lineIndex];
-    const product = getProductById(item.product_id);
-    if (!product) throw new ConfirmationError(400, `Produit introuvable : ${item.name}.`);
-    const variant = product.variants.find((v) => v.variantId === input.variantId);
-    if (!variant || !variant.active) {
+    const variant = getVariantById(input.variantId);
+    if (!variant || !variant.active || !variant.productActive || variant.productId !== item.product_id) {
       throw new ConfirmationError(400, `Variante indisponible pour ${item.name}.`);
     }
 
-    const items = order.items.map((it, index) =>
-      index === input.lineIndex
-        ? { ...it, color: variant.colorName, size: variant.size }
-        : it,
-    );
+    if (order.archivedAt) throw new ConfirmationError(409, "Restaurez la commande avant de modifier ses articles.");
+    const before = getOrderEditState(orderId).snapshot;
+    const items = order.items.map((line, index) => index === input.lineIndex ? replaceOrderVariant(line, variant) : line);
     const now = new Date().toISOString();
-    db.prepare("UPDATE orders SET items_json = ?, updated_at = ? WHERE id = ?").run(
-      JSON.stringify(items),
-      now,
-      orderId,
-    );
-    insertContact({
-      orderId,
-      agentId: actor.id,
-      channel: "note",
-      outcome: "note",
-      note: `Ligne modifiée : ${item.name} — ${item.color} / ${item.size} → ${variant.colorName} / ${variant.size} (SKU ${variant.sku})`,
-    });
+    const reason = `Variante modifiée : ${item.name} — ${variant.label} (SKU ${variant.sku})`;
+    db.prepare("UPDATE orders SET items_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(items), now, orderId);
+    db.prepare(`INSERT INTO order_edits (id, order_id, actor_id, actor_name, reason, before_json, after_json, created_at)
+      VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?)`).run(orderId, actor.id, actor.name ?? actor.id,
+        reason, JSON.stringify(before), JSON.stringify({ ...before, items }), now);
+    insertContact({ orderId, agentId: actor.id, channel: "note", outcome: "note", note: reason });
     return items[input.lineIndex];
   }).immediate();
 }

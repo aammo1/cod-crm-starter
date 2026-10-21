@@ -22,11 +22,10 @@ export async function GET(
       variants: product.variants
         .filter((variant) => variant.active)
         .map((variant) => ({
-          variantId: variant.variantId,
+          variantId: variant.id,
           sku: variant.sku,
-          size: variant.size,
-          colorName: variant.colorName,
-          colorHex: variant.colorHex,
+          label: variant.label,
+          options: variant.options,
           available: variant.available,
         })),
     });

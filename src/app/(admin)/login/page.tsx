@@ -3,11 +3,12 @@ import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { signIn } from "@/auth";
 import { getCurrentUser } from "@/lib/auth-guards";
+import { getStoreSettings } from "@/lib/services/store-settings";
 import { LoginForm, type LoginState } from "./login-form";
 
 export const metadata: Metadata = {
   title: "Connexion",
-  robots: { index: false },
+  robots: { index: false, follow: false },
 };
 
 export default async function LoginPage(props: {
@@ -36,5 +37,5 @@ export default async function LoginPage(props: {
     return { error: null };
   }
 
-  return <LoginForm action={login} />;
+  return <LoginForm action={login} storeName={getStoreSettings().storeName} />;
 }

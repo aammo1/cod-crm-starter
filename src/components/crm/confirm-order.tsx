@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2Icon, XCircleIcon } from "lucide-react";
 import { toast } from "sonner";
+import type { VariantOption as CommerceVariantOption } from "@/lib/commerce-types";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,8 +22,10 @@ export interface ConfirmOrderLine {
   lineIndex: number;
   productId: string;
   productName: string;
-  color: string;
-  size: string;
+  variantId: string;
+  label: string;
+  options: CommerceVariantOption[];
+  sku: string;
   quantity: number;
   upsell: boolean;
 }
@@ -35,9 +38,14 @@ export interface ConfirmOrderCity {
 interface VariantOption {
   variantId: string;
   sku: string;
-  size: string;
-  colorName: string;
+  label: string;
+  options: CommerceVariantOption[];
   available: number;
+}
+
+function variantDescription(variant: Pick<VariantOption, "label" | "options" | "sku">): string {
+  const options = variant.options.map((option) => `${option.name} : ${option.value}`).join(" / ");
+  return `${variant.label || "Standard"}${options ? ` · ${options}` : ""} · SKU ${variant.sku}`;
 }
 
 const fieldClassName =
@@ -120,7 +128,7 @@ export function ConfirmOrder({
         for (const line of lines) {
           if (next[line.lineIndex]) continue;
           const match = (map[line.productId] ?? []).find(
-            (variant) => variant.colorName === line.color && variant.size === line.size,
+            (variant) => variant.variantId === line.variantId,
           );
           if (match) next[line.lineIndex] = match.variantId;
         }
@@ -157,7 +165,7 @@ export function ConfirmOrder({
     if (missing) {
       toast.error(
         missing.upsell
-          ? `Sélectionnez la taille et la couleur pour la ligne upsell (${missing.productName}).`
+          ? `Sélectionnez une variante pour la ligne upsell (${missing.productName}).`
           : `Sélectionnez une variante pour ${missing.productName}.`,
       );
       return;
@@ -268,9 +276,7 @@ export function ConfirmOrder({
                   ) : null}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {line.upsell
-                    ? "Taille et couleur à préciser"
-                    : `${line.color} / ${line.size}`}
+                  {variantDescription(line)}
                 </p>
               </div>
               <Select
@@ -292,7 +298,7 @@ export function ConfirmOrder({
                       value={variant.variantId}
                       disabled={variant.available <= 0}
                     >
-                      {variant.colorName} / {variant.size} — {variant.available} dispo
+                      {variantDescription(variant)} — {variant.available} dispo
                     </SelectItem>
                   ))}
                 </SelectContent>

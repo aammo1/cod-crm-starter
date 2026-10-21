@@ -57,7 +57,7 @@ export function purgeConfirmedTests(db, ids, { apply = false, allowLaterStockCou
     const reservations = db.prepare("SELECT * FROM reservations WHERE order_id IN (SELECT id FROM cleanup_orders)").all();
     const effects = new Map();
     for (const row of movements) {
-      if (row.location !== "ZEHRI" || !["reserve", "release", "dispatch"].includes(row.kind) ||
+      if (row.location !== "MAIN" || !["reserve", "release", "dispatch"].includes(row.kind) ||
         !Number.isSafeInteger(row.qty) || row.qty === 0 ||
         (row.kind === "reserve" ? row.qty < 0 : row.qty > 0)) fail("Mouvement de stock non pris en charge. Aucun changement.");
       const key = `${row.order_id}:${row.variant_id}`;
@@ -78,7 +78,7 @@ export function purgeConfirmedTests(db, ids, { apply = false, allowLaterStockCou
     for (const effect of effects.values()) {
       if (effect.reserved !== effect.active || effect.dispatched !== effect.consumed) fail("Réservations et mouvements incohérents. Aucun changement.");
       // A later absolute recount may already have corrected a test dispatch.
-      if (!allowLaterStockCounts && effect.dispatched && db.prepare(`SELECT 1 FROM stock_movements WHERE variant_id = ? AND location = 'ZEHRI'
+      if (!allowLaterStockCounts && effect.dispatched && db.prepare(`SELECT 1 FROM stock_movements WHERE variant_id = ? AND location = 'MAIN'
         AND kind IN ('opening', 'adjust_physical', 'adjust_quarantine') AND created_at >= ? LIMIT 1`)
         .get(effect.variant, effect.first)) fail("Un comptage de stock est postérieur au test. Vérification manuelle nécessaire.");
       const sum = balances.get(effect.variant) ?? { variant: effect.variant, release: 0, restore: 0 };
@@ -88,7 +88,7 @@ export function purgeConfirmedTests(db, ids, { apply = false, allowLaterStockCou
     }
     const stock = [];
     for (const effect of balances.values()) {
-      const balance = db.prepare("SELECT * FROM stock_balances WHERE variant_id = ? AND location = 'ZEHRI'").get(effect.variant);
+      const balance = db.prepare("SELECT * FROM stock_balances WHERE variant_id = ? AND location = 'MAIN'").get(effect.variant);
       const active = db.prepare("SELECT COALESCE(SUM(qty), 0) AS n FROM reservations WHERE variant_id = ? AND status = 'active'").get(effect.variant).n;
       if (!balance || balance.reserved !== active || balance.reserved < effect.release) fail("Solde de stock incohérent. Aucun changement.");
       const physical = balance.physical + effect.restore;
@@ -109,7 +109,7 @@ export function purgeConfirmedTests(db, ids, { apply = false, allowLaterStockCou
     if (!apply) return summary;
 
     for (const row of stock) {
-      db.prepare("UPDATE stock_balances SET physical = ?, reserved = ? WHERE variant_id = ? AND location = 'ZEHRI'")
+      db.prepare("UPDATE stock_balances SET physical = ?, reserved = ? WHERE variant_id = ? AND location = 'MAIN'")
         .run(row.physicalAfter, row.reservedAfter, row.variant);
     }
     // Removing the original test movements leaves the ledger matching the restored balances.

@@ -7,11 +7,12 @@ import { after, test } from "node:test";
 import Database from "better-sqlite3";
 import { purgeConfirmedTests } from "../src/lib/services/inventory-test-cleanup.mjs";
 import { loadSource } from "./test-source.mjs";
+import { genericProduct } from "./order-operations-fixtures.mjs";
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zehri-test-purge-"));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-test-purge-"));
 process.env.DB_PATH = path.join(dir, "test.db");
 process.env.DELIVERY_PROVIDER = "mock";
-const { getDb, createOrder } = loadSource("@/lib/db");
+const { getDb } = loadSource("@/lib/db");
 const { openStock, reserveForOrder, dispatchOrder } = loadSource("@/lib/services/inventory");
 const db = getDb();
 after(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); });
@@ -22,14 +23,15 @@ function fixture() {
   const ids = [`ord_${prefix}_active`, `ord_${prefix}_dispatched`];
   const other = `ord_${prefix}_other`;
   const now = new Date().toISOString();
-  db.prepare(`INSERT INTO products (id, slug, name, category, price, created_at, updated_at)
-    VALUES (?, ?, 'Test', 'bottines', 100, ?, ?)`).run(prefix, prefix, now, now);
-  db.prepare("INSERT INTO product_colors (id, product_id, name) VALUES (?, ?, 'Noir')").run(prefix, prefix);
-  db.prepare("INSERT INTO variants (id, product_id, color_id, size, sku) VALUES (?, ?, ?, '38', ?)").run(v, prefix, prefix, v);
+  genericProduct(db, prefix, 100, [[v, []]]);
   openStock(v, 100, "test");
   for (const [index, id] of [...ids, other].entries()) {
-    createOrder({ id, customerName: "Test", customerPhone: "+212612345678", items: [], subtotal: 100, shipping: 29, total: 129 });
-    db.prepare("UPDATE orders SET confirmation_status = 'confirmed' WHERE id = ?").run(id);
+    const quantity = index === 0 ? 2 : 1;
+    db.prepare(`INSERT INTO orders (id, customer_name, customer_phone, items_json, upsell_status,
+      subtotal, shipping, total, currency, created_at, updated_at, confirmation_status)
+      VALUES (?, 'Test', '+212612345678', ?, 'closed', ?, 29, ?, 'MAD', ?, ?, 'confirmed')`).run(id,
+        JSON.stringify([{ product_id: prefix, variant_id: v, sku: v, name: "Test", variant_label: "Standard",
+          options: [], quantity, unit_price: 100, line_total: 100 * quantity }]), 100 * quantity, 100 * quantity + 29, now, now);
     reserveForOrder(id, [{ variantId: v, qty: index === 0 ? 2 : 1 }], "test", "test");
     db.prepare(`INSERT INTO courier_submissions (id, order_id, status, next_retry_at, created_at, updated_at)
       VALUES (?, ?, 'submitted', ?, ?, ?)`).run(`${id}-s`, id, now, now, now);

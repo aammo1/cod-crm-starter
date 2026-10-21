@@ -1,6 +1,7 @@
 import { TRACKING_STATUSES } from "@/lib/shipping/status-map";
 import { nanoid } from "nanoid";
-import { getDb, type OrderItem, type UpsellOfferJson, type UpsellStatus } from "@/lib/db";
+import { getDb } from "@/lib/db";
+import type { CommerceOrderItem as OrderItem, CommerceUpsellOffer as UpsellOfferJson, CommerceUpsellStatus as UpsellStatus } from "@/lib/commerce-types";
 
 export const CRM_TIMEZONE = "Africa/Casablanca";
 
@@ -519,9 +520,9 @@ function parseItems(json: string): OrderItem[] {
   }
 }
 
-export function summarizeItems(items: OrderItem[]): string {
+export function summarizeItems(items: Array<Pick<OrderItem, "name" | "quantity"> & { variant_label?: string }>): string {
   return items
-    .map((it) => `${it.name} ×${it.quantity} (${it.color} / ${it.size})`)
+    .map((it) => `${it.name} ×${it.quantity}${it.variant_label ? ` (${it.variant_label})` : ""}`)
     .join(" · ");
 }
 
@@ -700,8 +701,7 @@ export function insertContact(input: InsertContactInput): ContactEntry | null {
     if (Number.isNaN(timestamp)) {
       throw new ContactValidationError("Date de rappel invalide");
     }
-    const isLegacyTest = Boolean(process.env.DB_PATH?.includes("zehri-order-workflow-"));
-    if (!input.allowPastCallback && !isLegacyTest && timestamp <= Date.now()) {
+    if (!input.allowPastCallback && timestamp <= Date.now()) {
       throw new ContactValidationError("La date de rappel doit être dans le futur");
     }
   }
