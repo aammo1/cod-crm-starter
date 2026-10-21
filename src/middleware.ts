@@ -23,7 +23,7 @@ const pageAuth = auth((req, event: NextFetchEvent) => {
 
 export default function middleware(request: NextRequest, event: NextFetchEvent) {
   const path = request.nextUrl.pathname;
-  if (path.startsWith("/api/admin/") || path.startsWith("/api/crm/")) {
+  if (path === "/api/admin" || path === "/api/crm" || path.startsWith("/api/admin/") || path.startsWith("/api/crm/")) {
     if (!browserMutationAllowed(request)) {
       return NextResponse.json({ error: "Origine non autorisée." }, { status: 403 });
     }

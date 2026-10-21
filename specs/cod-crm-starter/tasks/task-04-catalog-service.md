@@ -1,7 +1,7 @@
 # Task 04: Generalize catalog validation and persistence
 
 ## Status
-pending
+complete
 
 ## Wave
 3

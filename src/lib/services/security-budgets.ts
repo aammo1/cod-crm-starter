@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { getDb } from "@/lib/db";
+import { normalizeMaPhone } from "@/lib/phone";
 
 type Budget = { key: string; limit: number; windowMs: number };
 
@@ -50,4 +51,27 @@ export function publicRequestBudget(request: Request, scope: "checkout" | "pixel
     { key: `${scope}:global`, limit, windowMs: 60_000 },
     ...(ip ? [{ key: budgetKey(`${scope}:ip`, ip), limit: scope === "checkout" ? 20 : 300, windowMs: 60_000 }] : []),
   ]);
+}
+
+/** All authenticated v1 requests, including durable receipt replays. */
+export function storefrontRequestBudget(request: Request): number {
+  const ip = trustedClientIp(request);
+  return consumeBudgets([
+    { key: "storefront:v1:global", limit: 600, windowMs: 60_000 },
+    ...(ip ? [{ key: budgetKey("storefront:v1:ip", ip), limit: 120, windowMs: 60_000 }] : []),
+  ]);
+}
+
+/**
+ * Task 11: call ONLY for a validated new order, inside its immediate transaction,
+ * AFTER durable receipt lookup. Never call on replay or upsell resolution.
+ * Returns Retry-After seconds (0 = allowed); the caller must stop on denial.
+ * Nested SQLite transactions let the hit roll back if order persistence fails.
+ */
+export function consumeStorefrontNewOrderPhoneBudget(phone: string, now = Date.now()): number {
+  const normalized = normalizeMaPhone(phone);
+  if (!normalized) throw new Error("Numéro de téléphone marocain invalide.");
+  return consumeBudgets([
+    { key: budgetKey("checkout:phone", normalized), limit: 5, windowMs: 600_000 },
+  ], now);
 }

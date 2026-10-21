@@ -1,122 +1,67 @@
 import { z } from "zod";
-import type { Badge, CategorySlug } from "@/lib/types";
+import { contentTypeForStoredName, isSafeStoredName } from "@/lib/uploads";
+import { validateOptionDefinitions, validateVariantOptions, validateVariantSku } from "@/lib/variant-options";
 import { stockQuantitySchema, stockRequestIdSchema } from "./inventory-schemas";
 
-const CATEGORY_VALUES = ["escarpins", "sandales", "bottines", "mocassins"] as const satisfies readonly CategorySlug[];
-const BADGE_VALUES = ["Nouveau", "Best-seller", "Édition limitée"] as const satisfies readonly Badge[];
+const text = (max: number) => z.string().trim().min(1).max(max).regex(/^[^\u0000-\u001f\u007f]+$/u);
+export const catalogImageSchema = z.string().trim().max(500).refine((image) => {
+  if (image.startsWith("/api/media/")) {
+    const name = image.slice("/api/media/".length);
+    return isSafeStoredName(name) && !!contentTypeForStoredName(name);
+  }
+  return /^\/images\/[A-Za-z0-9_./-]+\.(?:webp|png|jpe?g)$/i.test(image)
+    && !image.slice(1).split("/").some((part) => !part || part === "." || part === "..");
+}, "Utilisez un chemin d’image local valide.");
+const imagesSchema = z.array(catalogImageSchema).max(30);
+const optionsSchema = z.array(z.object({ name: text(80), value: text(120) }).strict()).max(3)
+  .transform((value, ctx) => {
+    try { return validateVariantOptions(value); }
+    catch (error) { ctx.addIssue({ code: "custom", message: (error as Error).message }); return z.NEVER; }
+  });
+const definitionsSchema = z.array(z.object({ name: text(80), values: z.array(text(120)).min(1).max(100) }).strict()).max(3)
+  .transform((value, ctx) => {
+    try {
+      const definitions = validateOptionDefinitions(value);
+      if (definitions.reduce((count, axis) => count * axis.values.length, 1) > 100) throw new Error("Au maximum 100 combinaisons sont autorisées.");
+      return definitions;
+    } catch (error) { ctx.addIssue({ code: "custom", message: (error as Error).message }); return z.NEVER; }
+  });
+export const variantInputSchema = z.object({
+  id: text(200).optional(),
+  sku: text(100).refine((value) => { try { validateVariantSku(value); return true; } catch { return false; } }, "SKU invalide.").optional(),
+  label: text(500).optional(), options: optionsSchema, images: imagesSchema.optional(), active: z.boolean().optional(),
+}).strict();
 
-export const colorInputSchema = z.object({
-  name: z
-    .string({ required_error: "Le nom de la couleur est requis." })
-    .trim()
-    .min(1, "Le nom de la couleur est requis.")
-    .max(60, "Le nom de la couleur ne doit pas dépasser 60 caractères."),
-  hex: z
-    .string({ required_error: "Le code couleur est requis." })
-    .trim()
-    .regex(/^#[0-9a-fA-F]{6}$/, "Le code couleur doit être un hexadécimal à 6 chiffres (ex. #1A1A1A)."),
-  images: z
-    .array(z.string().trim().min(1, "Chemin d'image invalide."))
-    .max(30, "Une couleur ne peut pas avoir plus de 30 images."),
-});
-
-const sizeSchema = z
-  .number({
-    required_error: "La pointure est requise.",
-    invalid_type_error: "La pointure doit être un nombre.",
-  })
-  .int("La pointure doit être un nombre entier.")
-  .min(30, "Les pointures doivent être comprises entre 30 et 45.")
-  .max(45, "Les pointures doivent être comprises entre 30 et 45.");
+// TASK 20 COMPATIBILITY BRIDGE: copied admin/catalog-agent callers still send a
+// color matrix. Only this boundary converts legacy numbers to strings; generic
+// option values are always strings and never parsed as shoe sizes.
+export const colorInputSchema = z.object({ name: text(80), hex: z.string().regex(/^#[0-9a-fA-F]{6}$/), images: imagesSchema });
+const legacySizeSchema = z.union([text(120), z.number().int().safe()]);
 
 export const productBaseSchema = z.object({
-  name: z
-    .string({ required_error: "Le nom du produit est requis." })
-    .trim()
-    .min(1, "Le nom du produit est requis.")
-    .max(120, "Le nom du produit ne doit pas dépasser 120 caractères."),
-  slug: z
-    .string()
-    .trim()
-    .min(1, "Le slug ne peut pas être vide.")
-    .max(120, "Le slug ne doit pas dépasser 120 caractères.")
-    .optional(),
-  category: z.enum(CATEGORY_VALUES, {
-    errorMap: () => ({ message: "Catégorie invalide (escarpins, sandales, bottines ou mocassins)." }),
-  }),
-  price: z
-    .number({ required_error: "Le prix est requis.", invalid_type_error: "Le prix doit être un nombre." })
-    .int("Le prix doit être un nombre entier de MAD.")
-    .min(1, "Le prix doit être d'au moins 1 MAD."),
-  description: z
-    .string({ required_error: "La description est requise." })
-    .trim()
-    .min(1, "La description est requise."),
-  story: z
-    .string({ required_error: "L'histoire du produit est requise." })
-    .trim()
-    .min(1, "L'histoire du produit est requise."),
-  materials: z
-    .array(z.string().trim().min(1, "Matériau invalide."))
-    .min(1, "Au moins un matériau est requis."),
-  badge: z
-    .enum(BADGE_VALUES, { errorMap: () => ({ message: "Badge invalide." }) })
-    .optional(),
-  isBestSeller: z.boolean({
-    required_error: "isBestSeller est requis.",
-    invalid_type_error: "isBestSeller doit être un booléen.",
-  }),
-  upsellRef: z
-    .string()
-    .trim()
-    .min(1, "upsellRef ne peut pas être vide.")
-    .optional(),
-  colors: z.array(colorInputSchema).min(1, "Au moins une couleur est requise."),
-  sizes: z.array(sizeSchema).min(1, "Au moins une pointure est requise."),
+  name: text(200),
+  slug: z.string().trim().max(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug invalide.").optional(),
+  category: text(100), price: z.number().int().safe().min(1),
+  description: z.string().trim().max(20000).default(""), story: z.string().trim().max(20000).default(""),
+  materials: z.array(text(200)).max(50).default([]), badge: text(100).nullable().optional(),
+  isBestSeller: z.boolean().default(false), upsellRef: text(200).nullable().optional(),
+  images: imagesSchema.optional(), optionDefinitions: definitionsSchema.optional(),
+  variants: z.array(variantInputSchema).min(1).max(100).optional(),
+  // TASK 20 COMPATIBILITY BRIDGE.
+  colors: z.array(colorInputSchema.strict()).min(1).max(100).optional(),
+  sizes: z.array(legacySizeSchema).min(1).max(100).optional(),
 });
-
-const noDuplicateSizes = (sizes: number[] | undefined): boolean =>
-  sizes === undefined || new Set(sizes).size === sizes.length;
-
-const duplicateSizesParams = {
-  message: "Les pointures ne doivent pas être en double.",
-  path: ["sizes"],
-};
-
+const initialStockSchema = z.union([
+  z.object({ options: optionsSchema, qty: stockQuantitySchema }).strict(),
+  z.object({ sku: text(100), qty: stockQuantitySchema }).strict(),
+  z.object({ variantId: text(200), qty: stockQuantitySchema }).strict(),
+  // TASK 20 COMPATIBILITY BRIDGE.
+  z.object({ colorKey: text(80), size: text(120), qty: stockQuantitySchema }).strict(),
+]);
 export const createProductSchema = productBaseSchema.extend({
-  requestId: stockRequestIdSchema.optional(),
-  initialStock: z.array(z.object({
-    // Creation colors have no persisted ID yet: their exact name is the key.
-    colorKey: z.string().trim().min(1),
-    size: z.string().trim().min(1),
-    qty: stockQuantitySchema,
-  }).strict()).max(500).optional(),
-}).refine(
-  (data) => noDuplicateSizes(data.sizes),
-  duplicateSizesParams,
-).superRefine((data, ctx) => {
-  const colors = new Set(data.colors.map((color) => color.name));
-  if (colors.size !== data.colors.length) {
-    ctx.addIssue({ code: "custom", path: ["colors"], message: "Les couleurs ne doivent pas être en double." });
-  }
-  const sizes = new Set(data.sizes.map(String));
-  const seen = new Set<string>();
-  for (const [index, item] of (data.initialStock ?? []).entries()) {
-    const key = JSON.stringify([item.colorKey, item.size]);
-    if (!colors.has(item.colorKey) || !sizes.has(item.size)) {
-      ctx.addIssue({ code: "custom", path: ["initialStock", index], message: "Le stock initial doit correspondre à une couleur et une pointure du produit." });
-    }
-    if (seen.has(key)) {
-      ctx.addIssue({ code: "custom", path: ["initialStock", index], message: "Stock initial en double pour cette couleur et cette pointure." });
-    }
-    seen.add(key);
-  }
-});
-
-export const updateProductSchema = productBaseSchema.partial().refine(
-  (data) => noDuplicateSizes(data.sizes),
-  duplicateSizesParams,
-);
-
-export type CreateProductInput = z.infer<typeof createProductSchema>;
-export type UpdateProductInput = z.infer<typeof updateProductSchema>;
+  requestId: stockRequestIdSchema.optional(), initialStock: z.array(initialStockSchema).max(100).optional(),
+}).strict();
+// Reject initialStock, balances and availability on edits.
+export const updateProductSchema = productBaseSchema.partial().strict();
+export type CreateProductInput = z.input<typeof createProductSchema>;
+export type UpdateProductInput = z.input<typeof updateProductSchema>;

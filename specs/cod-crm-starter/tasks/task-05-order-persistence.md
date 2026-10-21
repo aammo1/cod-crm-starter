@@ -1,7 +1,7 @@
 # Task 05: Implement transactional checkout receipts and durable upsells
 
 ## Status
-pending
+complete
 
 ## Wave
 3

@@ -1,4 +1,6 @@
-export type CategorySlug = "escarpins" | "sandales" | "bottines" | "mocassins";
+export type { CommerceProduct, CommerceVariant, PublicCommerceProduct, PublicCommerceVariant, ProductOptionDefinition, VariantOption } from "./commerce-types";
+
+export type CategorySlug = string;
 
 export interface Category {
   slug: CategorySlug;
@@ -20,8 +22,10 @@ export interface ProductColor {
   sizes: ProductColorSize[];
 }
 
-export type Badge = "Nouveau" | "Best-seller" | "Édition limitée";
+export type Badge = string;
 
+/** TASK 20 COMPATIBILITY BRIDGE: copied presentation consumers only.
+ * New catalog/order code must use commerce-types instead. */
 export interface Product {
   id: string;
   slug: string;

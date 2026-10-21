@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { shippingFor } from "@/lib/pricing";
 import { runMigrations } from "@/lib/migrate";
 import type { requestMetaContext } from "@/lib/services/meta";
+import type { CommerceOrderItem, CommerceUpsellOffer, CommerceStoreSettings } from "@/lib/commerce-types";
 
 type Db = Database.Database;
 type Stmt = Database.Statement;
@@ -20,6 +21,37 @@ let statements: Statements | null = null;
 
 export function getDb(): Db {
   return init().db;
+}
+
+/** Private immutable snapshot, including SKU data omitted from public offers. */
+export interface StoredStorefrontOffer extends CommerceUpsellOffer {
+  rules: CommerceStoreSettings;
+  variantItems: CommerceOrderItem[];
+}
+
+/** Used inside the checkout transaction on this connection, never a network call. */
+export function insertStorefrontOrder(db: Db, input: {
+  id: string; customerName: string; customerPhone: string; items: CommerceOrderItem[];
+  offer: StoredStorefrontOffer | null; nonce: string; verifier: string;
+  subtotal: number; shipping: number; total: number; now: string;
+}): void {
+  if (!db.inTransaction) throw new Error("Une transaction est requise.");
+  db.prepare(`INSERT INTO orders (id, customer_name, customer_phone, items_json,
+    upsell_offer_json, upsell_status, subtotal, shipping, total, currency,
+    created_at, updated_at, upsell_offer_id, upsell_expires_at, order_token_nonce, order_token_verifier)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'MAD', ?, ?, ?, ?, ?, ?)`)
+    .run(input.id, input.customerName, input.customerPhone, JSON.stringify(input.items),
+      input.offer ? JSON.stringify(input.offer) : null, input.offer ? "pending" : "closed",
+      input.subtotal, input.shipping, input.total, input.now, input.now,
+      input.offer?.offerId ?? null, input.offer?.expiresAt ?? null, input.nonce, input.verifier);
+}
+
+/** Confirmation must call within its own immediate transaction before reservation.
+ * The Meta trigger freezes the same final snapshot in this transaction. */
+export function closePendingStorefrontUpsell(db: Db, orderId: string, status: "closed" | "expired" = "closed"): void {
+  if (!db.inTransaction) throw new Error("Une transaction est requise.");
+  db.prepare("UPDATE orders SET upsell_status = ?, updated_at = ? WHERE id = ? AND upsell_status = 'pending'")
+    .run(status, nowIso(), orderId);
 }
 
 // Lazily opened so that importing this module (e.g. during `next build`
@@ -60,6 +92,9 @@ function init(): { db: Db; stmts: Statements } {
   return { db, stmts: statements };
 }
 
+// Transitional copied CRM consumers keep their old shape until task 10/20.
+// New storefront persistence uses CommerceOrderItem exclusively, never these
+// legacy color/size fields. Do not pass generic orders to resolveUpsell below.
 export interface OrderItem {
   product_id: string;
   name: string;
@@ -251,6 +286,11 @@ export function resolveUpsell(id: string, action: "accept" | "decline"): OrderRo
   return db.transaction(() => {
     const current = getOrder(id);
     if (!current) return null;
+    // Generic storefront orders require the token/receipt/variant-aware service.
+    // Transitional public routes must never bypass that boundary.
+    if (db.prepare("SELECT 1 FROM orders WHERE id = ? AND order_token_nonce IS NOT NULL").get(id)) {
+      throw new UpsellConflictError();
+    }
     // Idempotent: resolved offers (including those closed by confirmation) stay put.
     if (current.upsellStatus !== "pending") return current;
     const expired = db.prepare("SELECT 1 FROM meta_purchases WHERE order_id = ? AND deadline <= ?")

@@ -84,9 +84,9 @@ Task 05 implements against the shared typed catalog port, with final runtime bin
 - [x] [task-02-generic-schema](./tasks/task-02-generic-schema.md) — Generic persistence and shared contracts
 - [x] [task-03-store-configuration](./tasks/task-03-store-configuration.md) — Settings service and pricing
 ### Wave 3
-- [ ] [task-04-catalog-service](./tasks/task-04-catalog-service.md) — Flexible catalog CRUD
-- [ ] [task-05-order-persistence](./tasks/task-05-order-persistence.md) — Checkout persistence and durable upsells
-- [ ] [task-06-integration-auth](./tasks/task-06-integration-auth.md) — Authenticated server-to-server boundary
+- [x] [task-04-catalog-service](./tasks/task-04-catalog-service.md) — Flexible catalog CRUD
+- [x] [task-05-order-persistence](./tasks/task-05-order-persistence.md) — Checkout persistence and durable upsells
+- [x] [task-06-integration-auth](./tasks/task-06-integration-auth.md) — Authenticated server-to-server boundary
 ### Wave 4
 - [ ] [task-07-generic-inventory](./tasks/task-07-generic-inventory.md) — Variant-based stock
 - [ ] [task-08-catalog-management](./tasks/task-08-catalog-management.md) — Product management UI and routes

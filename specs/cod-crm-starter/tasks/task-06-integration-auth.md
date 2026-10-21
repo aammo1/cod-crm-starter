@@ -1,7 +1,7 @@
 # Task 06: Add the server-to-server integration security boundary
 
 ## Status
-pending
+complete
 
 ## Wave
 3
