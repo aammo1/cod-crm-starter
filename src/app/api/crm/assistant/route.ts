@@ -4,6 +4,7 @@ import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { createCrmAssistant, assistantErrorMessage } from "@/lib/assistant";
 import { assistantRequestSchema, ASSISTANT_TOOL_LABELS, type AssistantEvent, type AssistantSource } from "@/lib/assistant-contract";
 import { claimAssistantRequest } from "@/lib/assistant-limits";
+import { browserMutationAllowed } from "@/lib/browser-mutation";
 
 export const runtime = "nodejs";
 export const maxDuration = 65;
@@ -28,10 +29,7 @@ async function readBody(request: Request): Promise<unknown> {
 export async function POST(request: Request) {
   try {
     const user = await requireAdmin();
-    const origin = request.headers.get("origin");
-    // Reverse proxies may terminate HTTPS before forwarding to Node over HTTP.
-    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? new URL(request.url).host;
-    if (origin && new URL(origin).host !== host) {
+    if (!browserMutationAllowed(request)) {
       return NextResponse.json({ error: "Origine non autorisée." }, { status: 403 });
     }
     if (!process.env.OPENROUTER_API_KEY?.trim()) {

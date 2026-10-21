@@ -10,22 +10,30 @@ import {
   archiveProduct, createProduct, getProductById, getProductBySlug,
   listProducts, restoreProduct, updateProduct, type CatalogProduct,
 } from "./catalog";
-import { colorInputSchema, createProductSchema, productBaseSchema } from "./catalog-schemas";
+import { createProductSchema, updateProductSchema, variantInputSchema } from "./catalog-schemas";
+import { variantOptionsKey } from "@/lib/variant-options";
 import { stockQuantitySchema } from "./inventory-schemas";
 
 const requestIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,128}$/);
-const base = productBaseSchema.extend({ colors: z.array(colorInputSchema.strict()).min(1) }).strict();
-const createData = base.extend({
-  initialStock: z.array(z.object({ colorKey: z.string().trim().min(1), size: z.string().trim().min(1), qty: stockQuantitySchema }).strict()).max(500).optional(),
+const clientVariantKey = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
+// Reuse admin validation; keys are a creation-only transport identity, never a DB ID.
+const createData = createProductSchema.omit({ colors: true, sizes: true, requestId: true, initialStock: true, variants: true }).extend({
+  variants: z.array(variantInputSchema.omit({ id: true }).extend({ key: clientVariantKey })).min(1).max(100).optional(),
+  initialStock: z.array(z.object({ variantKey: clientVariantKey, qty: stockQuantitySchema }).strict()).max(100).optional(),
 }).superRefine((data, ctx) => {
-  const checked = createProductSchema.safeParse(data);
-  if (!checked.success) for (const issue of checked.error.issues) ctx.addIssue(issue);
+  const keys = new Set<string>();
+  for (const variant of data.variants ?? []) {
+    if (keys.has(variant.key)) ctx.addIssue({ code: "custom", message: "Clé de variante dupliquée." });
+    keys.add(variant.key);
+  }
+  const opened = new Set<string>();
+  for (const item of data.initialStock ?? []) {
+    if (!keys.has(item.variantKey) || opened.has(item.variantKey)) ctx.addIssue({ code: "custom", message: "Stock initial inconnu ou dupliqué pour cette variante." });
+    opened.add(item.variantKey);
+  }
 });
-const editData = base.partial().omit({ slug: true }).superRefine((data, ctx) => {
+const editData = updateProductSchema.omit({ colors: true, sizes: true }).superRefine((data, ctx) => {
   if (!Object.keys(data).length) ctx.addIssue({ code: "custom", message: "Aucune modification fournie." });
-  if (data.colors && !data.sizes) ctx.addIssue({ code: "custom", message: "Fournissez la liste finale des pointures avec les couleurs." });
-  if (data.sizes && new Set(data.sizes).size !== data.sizes.length) ctx.addIssue({ code: "custom", message: "Pointures en double." });
-  if (data.colors && new Set(data.colors.map(c => c.name)).size !== data.colors.length) ctx.addIssue({ code: "custom", message: "Couleurs en double." });
 });
 export const catalogOperationSchema = z.discriminatedUnion("command", [
   z.object({ command: z.literal("create"), requestId: requestIdSchema, data: createData }).strict(),
@@ -61,8 +69,8 @@ export function findCatalogProduct(target: string): CatalogProduct {
 
 function checkImages(operation: Operation, applying: boolean): void {
   if (operation.command !== "create" && operation.command !== "edit") return;
-  for (const color of operation.data.colors ?? []) {
-    for (const image of color.images) {
+  for (const images of [operation.data.images ?? [], ...(operation.data.variants ?? []).map(variant => variant.images ?? [])]) {
+    for (const image of images) {
       // Only local media paths: the API never fetches external URLs.
       if (image.startsWith("/api/media/")) {
         const name = image.slice("/api/media/".length);
@@ -79,7 +87,12 @@ function checkImages(operation: Operation, applying: boolean): void {
 function execute(operation: Operation, applying: boolean): CatalogProduct {
   checkImages(operation, applying);
   if (operation.command === "create") {
-    return createProduct({ ...operation.data, requestId: `agent-${hash(operation.requestId)}` }, { actor: "catalog-agent" });
+    const { variants, initialStock, ...data } = operation.data;
+    return createProduct({ ...data,
+      variants: variants?.map(({ key: _key, ...variant }) => { void _key; return variant; }),
+      initialStock: initialStock?.map(item => ({ options: variants!.find(variant => variant.key === item.variantKey)!.options, qty: item.qty })),
+      requestId: `agent-${hash(operation.requestId)}`,
+    }, { actor: "catalog-agent" });
   }
   const product = findCatalogProduct(operation.target);
   if (operation.command === "edit") return updateProduct(product.id, operation.data);
@@ -93,6 +106,12 @@ interface Receipt {
   command: Operation["command"];
   product: CatalogProduct;
   appliedAt: string;
+  variantIds: Record<string, string>;
+}
+function creationVariantIds(operation: Operation, product: CatalogProduct): Record<string, string> {
+  return operation.command !== "create" ? {} : Object.fromEntries((operation.data.variants ?? []).map(variant => [
+    variant.key, product.variants.find(saved => variantOptionsKey(saved.options) === variantOptionsKey(variant.options))!.id,
+  ]));
 }
 export function catalogReceipt(requestId: string): Receipt | null {
   requestIdSchema.parse(requestId);
@@ -128,10 +147,11 @@ export function previewCatalogOperation(input: unknown) {
   const body = Buffer.from(JSON.stringify(proof)).toString("base64url");
   return {
     alreadyApplied: false as const, operation, before, after,
+    variantIds: creationVariantIds(operation, after!),
     preview: `${body}.${sign(body)}`, expiresAt: new Date(proof.expiresAt).toISOString(),
     notes: [
       "Les identifiants des nouvelles variantes sont provisoires dans cet aperçu.",
-      "Les couleurs et pointures fournies remplacent la sélection active. Les variantes retirées et leur historique sont conservés.",
+      "Les variantes fournies remplacent la sélection active. Les variantes retirées et leur historique sont conservés.",
       "Les nouvelles variantes créées lors d’une modification démarrent à zéro ; les variantes réactivées conservent leur stock.",
       "Aucune image retirée n’est supprimée du stockage.",
     ],
@@ -157,7 +177,7 @@ export function applyCatalogOperation(input: unknown, preview: string) {
       throw new CatalogAgentError("Le catalogue ou la demande a changé, ou l’aperçu a expiré. Faites approuver un nouvel aperçu.", 409);
     }
     const product = execute(operation, true);
-    const saved: Receipt = { requestHash, command: operation.command, product, appliedAt: new Date().toISOString() };
+    const saved: Receipt = { requestHash, command: operation.command, product, variantIds: creationVariantIds(operation, product), appliedAt: new Date().toISOString() };
     setAppState(`catalog-agent:${operation.requestId}`, JSON.stringify(saved));
     return { replayed: false, ...saved };
   }).immediate();

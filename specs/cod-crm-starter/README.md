@@ -101,9 +101,9 @@ Task 05 implements against the shared typed catalog port, with final runtime bin
 - [x] [task-15-order-workspace](./tasks/task-15-order-workspace.md) — Generic order UI and handlers
 - [x] [task-16-storefront-client](./tasks/task-16-storefront-client.md) — Typed client and Next.js examples
 ### Wave 7
-- [ ] [task-17-crm-assistant](./tasks/task-17-crm-assistant.md) — Preserve optional read-only assistant
-- [ ] [task-18-catalog-agent](./tasks/task-18-catalog-agent.md) — Preserve optional catalog automation
-- [ ] [task-19-deployment-guides](./tasks/task-19-deployment-guides.md) — Portable deployment and agent documentation
+- [x] [task-17-crm-assistant](./tasks/task-17-crm-assistant.md) — Preserve optional read-only assistant
+- [x] [task-18-catalog-agent](./tasks/task-18-catalog-agent.md) — Preserve optional catalog automation
+- [x] [task-19-deployment-guides](./tasks/task-19-deployment-guides.md) — Portable deployment and agent documentation
 ### Wave 8
 - [ ] [task-20-release-integration](./tasks/task-20-release-integration.md) — Close integration gaps and verify release
 ### Wave 9

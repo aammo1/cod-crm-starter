@@ -61,7 +61,7 @@ export function createAssistantTools(addSource: (source: AssistantSource) => voi
       execute: async () => read(readAssistantShipping, { label: "Expéditions et BL", href: "/crm/expeditions" }),
     }),
     stock: tool({
-      description: "Disponibilité actuelle par produit, couleur, pointure ou SKU, avec productId exact facultatif. Pages de 20 variantes triées par disponibilité ; suivre nextPage si nécessaire. Aucun extrait ne constitue un total global.",
+      description: "Disponibilité actuelle par produit, libellé, options ou SKU, avec productId exact facultatif. Pages de 20 variantes triées par disponibilité ; suivre nextPage si nécessaire. Aucun extrait ne constitue un total global.",
       inputSchema: z.object({ q: z.string().max(100), threshold: z.number().int().min(0).max(1000).optional(), page, productId: id.optional() }).strict(),
       execute: async ({ q, threshold, page, productId }) => read(() => readAssistantStock(q, threshold, page, productId), { label: "Stock par variante", href: "/crm/stock" }),
     }),
@@ -71,7 +71,7 @@ export function createAssistantTools(addSource: (source: AssistantSource) => voi
       execute: async ({ id, page }) => read(() => readAssistantReturn(id, page), { label: "Retours", href: "/crm/retours" }),
     }),
     catalog: tool({
-      description: "Rechercher les produits actifs, leur description et leur prix catalogue en MAD. Pages de 10 produits. Pour couleurs, tailles et disponibilité : utiliser stock avec productId.",
+      description: "Rechercher les produits actifs, leur description et leur prix catalogue en MAD. Pages de 10 produits. Pour variantes, options, SKU et disponibilité : utiliser stock avec productId.",
       inputSchema: z.object({ q: z.string().max(100), page }).strict(),
       execute: async ({ q, page }) => read(() => readAssistantCatalog(q, page), { label: "Catalogue produits", href: "/admin" }),
     }),

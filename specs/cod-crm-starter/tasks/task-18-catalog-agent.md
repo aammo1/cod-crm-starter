@@ -1,7 +1,7 @@
 # Task 18: Adapt optional catalog automation to the generic catalog
 
 ## Status
-pending
+complete
 
 ## Wave
 7

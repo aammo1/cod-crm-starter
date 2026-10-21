@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Online SQLite backup via better-sqlite3 db.backup() — safe while the app is
-// running (no locks, consistent snapshot). Keeps the last KEEP_BACKUPS files.
+// running (consistent snapshot, subject to SQLite contention). Keeps 14 snapshots.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -21,12 +21,25 @@ async function main() {
     process.exit(1);
   }
 
-  fs.mkdirSync(backupsDir, { recursive: true });
-  const dest = path.join(backupsDir, `zehri-${safeTimestamp()}.db`);
+  // Restrict creation from the outset, including any SQLite sidecars. chmod is
+  // also required for an existing directory; mkdir's mode only affects new ones.
+  process.umask(0o077);
+  fs.mkdirSync(backupsDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(backupsDir, 0o700);
+  const dest = path.join(backupsDir, `crm-${safeTimestamp()}.db`);
 
-  const db = new Database(dbPath);
+  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   try {
-    await db.backup(dest);
+    // Exclusive creation prevents overwriting an existing snapshot or following
+    // a destination symlink. Set permissions BEFORE SQLite can write any data.
+    const fd = fs.openSync(dest, "wx", 0o600);
+    fs.closeSync(fd);
+    try {
+      await db.backup(dest);
+    } catch (error) {
+      fs.unlinkSync(dest);
+      throw error;
+    }
   } finally {
     db.close();
   }
@@ -36,7 +49,7 @@ async function main() {
 
   const backups = fs
     .readdirSync(backupsDir)
-    .filter((name) => /^zehri-.*\.db$/.test(name))
+    .filter((name) => /^crm-.*\.db$/.test(name))
     .sort()
     .reverse();
   for (const stale of backups.slice(KEEP_BACKUPS)) {

@@ -9,7 +9,7 @@ function genId(length = 12) {
 
 const usage = `Usage: node scripts/create-user.mjs <email> <password> <name> <admin|agent>
 Mot de passe : entre 12 et 128 caractères.
-Exemple: node scripts/create-user.mjs owner@zehri.ma '<password>' 'Owner' admin`;
+Exemple: node scripts/create-user.mjs admin@example.test '<mot-de-passe-12-caracteres-minimum>' 'Administrateur' admin`;
 
 function hashPassword(password) {
   const salt = randomBytes(16);
@@ -40,7 +40,7 @@ function applyMigrations(db) {
     "CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)",
   );
   const dir = path.join(process.cwd(), "migrations");
-  if (!fs.existsSync(dir)) return;
+  if (!fs.existsSync(dir)) throw new Error(`Répertoire de migrations introuvable : ${dir}`);
 
   const applied = new Set(
     db.prepare("SELECT name FROM _migrations").all().map((row) => row.name),

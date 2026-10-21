@@ -6,6 +6,7 @@ import { getCrmOrder, listOrders, type ListOrdersOptions } from "@/lib/services/
 import { getReturn, getReturnBySubmission } from "@/lib/services/returns";
 import { redactSecrets, redactText } from "@/lib/shipping/redact";
 import { assistantPage } from "@/lib/services/assistant-investigation";
+import type { VariantOption } from "@/lib/commerce-types";
 
 // Only explicit read queries are exposed. Never accept SQL or provider URLs.
 export function readAssistantPriorities() {
@@ -66,36 +67,52 @@ export function readAssistantShipping() {
 
 export function readAssistantStock(q: string, threshold?: number, page = 1, productId?: string) {
   const rows = getDb().prepare(`
-    SELECT v.id AS variantId, p.name AS product, c.name AS color, v.size, v.sku,
+    SELECT v.id AS variantId, p.id AS productId, p.name AS product, v.label, v.options_json AS optionsJson, v.sku,
       COALESCE(b.physical, 0) AS physical, COALESCE(b.reserved, 0) AS reserved,
       COALESCE(b.quarantine, 0) AS quarantine,
       MAX(0, COALESCE(b.physical, 0) - COALESCE(b.reserved, 0) - COALESCE(b.quarantine, 0)) AS available
     FROM variants v JOIN products p ON p.id = v.product_id
-    JOIN product_colors c ON c.id = v.color_id
     LEFT JOIN stock_balances b ON b.variant_id = v.id AND b.location = @location
     WHERE v.active = 1 AND p.active = 1
       ${productId ? "AND p.id = @productId" : ""}
-      AND (p.name LIKE @q OR v.sku LIKE @q OR v.size LIKE @q OR c.name LIKE @q)
+      AND (p.name LIKE @q OR v.sku LIKE @q OR v.label LIKE @q
+        OR EXISTS (SELECT 1 FROM json_each(v.options_json) option
+          WHERE json_extract(option.value, '$.name') LIKE @q OR json_extract(option.value, '$.value') LIKE @q))
       AND (@threshold IS NULL OR MAX(0, COALESCE(b.physical, 0) - COALESCE(b.reserved, 0) - COALESCE(b.quarantine, 0)) <= @threshold)
-    ORDER BY available ASC, p.name, v.size, v.id LIMIT 21 OFFSET @offset
+    ORDER BY available ASC, p.name, v.label, v.id LIMIT 21 OFFSET @offset
   `).all({ q: `%${q}%`, threshold: threshold ?? null, location: DEFAULT_LOCATION, offset: (page - 1) * 20, ...(productId ? { productId } : {}) });
-  return assistantPage(rows, page);
+  return assistantPage(rows.map((row) => {
+    const { optionsJson, ...fields } = row as { optionsJson: string };
+    return { ...fields, options: JSON.parse(optionsJson) as VariantOption[] };
+  }), page);
 }
 
 export function readAssistantReturn(id: string, page = 1) {
   const result = getReturn(id);
   if (!result) return null;
-  const lines = getDb().prepare(`SELECT l.variant_id AS variantId, p.name AS product, c.name AS color, v.size,
+  const db = getDb();
+  const submission = db.prepare("SELECT order_id AS orderId FROM courier_submissions WHERE id = ?").get(result.submissionId) as { orderId: string };
+  const order = getCrmOrder(submission.orderId);
+  const items = [...(order?.items ?? []), ...(order?.upsellStatus === "accepted" ? order.upsellItems ?? [] : [])];
+  const lines = db.prepare(`SELECT l.variant_id AS variantId, p.id AS productId, p.name AS product, v.label, v.sku, v.options_json AS optionsJson,
     l.dispatched_qty AS dispatchedQty, l.sellable_qty AS sellableQty, l.damaged_qty AS damagedQty
     FROM return_lines l JOIN variants v ON v.id = l.variant_id JOIN products p ON p.id = v.product_id
-    JOIN product_colors c ON c.id = v.color_id WHERE l.return_id = ? ORDER BY l.variant_id LIMIT 21 OFFSET ?`).all(id, (page - 1) * 20);
-  return { ...result, lines: assistantPage(lines, page), note: "Les quantités totales viennent du retour ; les lignes d’inspection sont un extrait." };
+    WHERE l.return_id = ? ORDER BY l.variant_id LIMIT 21 OFFSET ?`).all(id, (page - 1) * 20);
+  const snapshotLines = lines.map((row) => {
+    const { optionsJson, ...line } = row as { variantId: string; optionsJson: string };
+    const item = items.find((item) => item.variant_id === line.variantId);
+    return { ...line, ...(item ? { product: item.name, sku: item.sku, label: item.variant_label } : {}),
+      options: item?.options ?? JSON.parse(optionsJson) as VariantOption[],
+      identitySource: item ? "order_snapshot" : "current_catalog" };
+  });
+  return { ...result, orderId: submission.orderId, lines: assistantPage(snapshotLines, page), note: "Les quantités totales viennent du retour ; les lignes d’inspection sont un extrait. Identité issue de la commande, ou du catalogue actuel si aucun instantané ne correspond." };
 }
 
 // Bound every free-text field, scrub credential-bearing URLs and literal secrets.
 export function sanitizeAssistantData(value: unknown): unknown {
   if (typeof value === "string") return redactSecrets(redactText(value), [
     process.env.OZON_CLIENT_ID ?? "", process.env.OZON_API_KEY ?? "", process.env.OPENROUTER_API_KEY ?? "",
+    process.env.AUTH_SECRET ?? "", process.env.STOREFRONT_API_KEY ?? "", process.env.CATALOG_AGENT_KEY ?? "",
   ]).slice(0, 600);
   if (Array.isArray(value)) return value.slice(0, 20).map(sanitizeAssistantData);
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeAssistantData(item)]));

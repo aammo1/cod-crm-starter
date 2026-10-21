@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
 import { casablancaLocalToUtcIso } from "@/lib/services/orders";
 import { DEFAULT_LOCATION } from "@/lib/services/inventory";
+import type { VariantOption } from "@/lib/commerce-types";
 
 // LIMIT + 1 supplies pagination without COUNT(*) over every matching record.
 export function assistantPage<T>(rows: T[], page: number, size = 20) {
@@ -28,13 +29,17 @@ export function readAssistantStockAudit(input: { variantId?: string; orderId?: s
   const reservations = db.prepare(`SELECT variant_id AS variantId, order_id AS orderId,
     qty, status, created_at AS createdAt, resolved_at AS resolvedAt FROM reservations
     WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT 21 OFFSET @offset`).all(params);
-  const balance = variantId ? db.prepare(`SELECT v.id AS variantId, v.sku, v.size, p.name AS product,
-    c.name AS color, COALESCE(b.physical, 0) AS physical, COALESCE(b.reserved, 0) AS reserved,
+  const balanceRow = variantId ? db.prepare(`SELECT v.id AS variantId, v.product_id AS productId, v.sku, v.label, v.options_json AS optionsJson, p.name AS product,
+    COALESCE(b.physical, 0) AS physical, COALESCE(b.reserved, 0) AS reserved,
     COALESCE(b.quarantine, 0) AS quarantine,
     MAX(0, COALESCE(b.physical, 0) - COALESCE(b.reserved, 0) - COALESCE(b.quarantine, 0)) AS available
-    FROM variants v JOIN products p ON p.id = v.product_id JOIN product_colors c ON c.id = v.color_id
+    FROM variants v JOIN products p ON p.id = v.product_id
     LEFT JOIN stock_balances b ON b.variant_id = v.id AND b.location = @location
-    WHERE v.id = @variantId`).get({ variantId, location: DEFAULT_LOCATION }) : null;
+    WHERE v.id = @variantId`).get({ variantId, location: DEFAULT_LOCATION }) as { optionsJson: string } | undefined : null;
+  const balance = balanceRow ? (() => {
+    const { optionsJson, ...fields } = balanceRow;
+    return { ...fields, options: JSON.parse(optionsJson) as VariantOption[] };
+  })() : null;
   return { balance, movements: assistantPage(movements, page), reservations: assistantPage(reservations, page) };
 }
 

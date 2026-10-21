@@ -1,10 +1,15 @@
 services:
   crm:
     build: .
-    ports: ["3000:3000"]
+    restart: unless-stopped
+    # Local binding; terminate HTTPS at a trusted reverse proxy in production.
+    ports: ["127.0.0.1:3000:3000"]
     environment:
       DB_PATH: /app/data/crm.db
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET is required (openssl rand -base64 32)}
+      CRM_PUBLIC_URL: ${CRM_PUBLIC_URL:?CRM_PUBLIC_URL is required (absolute CRM origin)}
+      STOREFRONT_API_KEY: ${STOREFRONT_API_KEY:-}
+      CATALOG_AGENT_KEY: ${CATALOG_AGENT_KEY:-}
       OZON_CLIENT_ID: ${OZON_CLIENT_ID:-}
       OZON_API_KEY: ${OZON_API_KEY:-}
       OZON_BASE_URL: ${OZON_BASE_URL:-https://api.ozonexpress.ma}
@@ -12,9 +17,16 @@ services:
       OZON_SUBMIT_INTERVAL_SEC: ${OZON_SUBMIT_INTERVAL_SEC:-15}
       OZON_POLL_INTERVAL_MIN: ${OZON_POLL_INTERVAL_MIN:-30}
       OZON_TRACK_BATCH: ${OZON_TRACK_BATCH:-25}
-      # "mock" = no real Ozon calls (local/staging only; leave empty in production)
+      # Only the exact value "mock" selects mock. Explicit "ozon" selects live.
       DELIVERY_PROVIDER: ${DELIVERY_PROVIDER:-mock}
-      SECURITY_ALLOWED_ORIGINS: ${SECURITY_ALLOWED_ORIGINS:-}
+      SECURITY_ALLOWED_ORIGINS: ${SECURITY_ALLOWED_ORIGINS:?SECURITY_ALLOWED_ORIGINS is required (exact CRM origin)}
+      SECURITY_TRUSTED_IP_HEADER: ${SECURITY_TRUSTED_IP_HEADER:-}
+      FACEBOOK_PIXEL_ID: ${FACEBOOK_PIXEL_ID:-}
+      FACEBOOK_ACCESS_TOKEN: ${FACEBOOK_ACCESS_TOKEN:-}
+      FACEBOOK_TEST_EVENT_CODE: ${FACEBOOK_TEST_EVENT_CODE:-}
+      FACEBOOK_API_VERSION: ${FACEBOOK_API_VERSION:-v22.0}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-qwen/qwen3.7-flash}
       UPLOAD_DIR: /app/data/uploads
     volumes:
       - crm-data:/app/data

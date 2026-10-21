@@ -26,11 +26,11 @@ export async function GET(request: Request) {
     let result: unknown;
     switch (command) {
       case "capabilities": result = {
-        schemaVersion: 1, commands: ["list", "show", "preview", "apply", "receipt", "upload"],
+        schemaVersion: 2, commands: ["list", "show", "preview", "apply", "receipt", "upload"],
         operations: ["create", "edit", "archive", "restore"], stock: "initial-on-create-only",
-        categories: ["escarpins", "sandales", "bottines", "mocassins"],
-        badges: ["Nouveau", "Best-seller", "Édition limitée"], sizes: { min: 30, max: 45, integer: true },
-        currency: "MAD", language: "fr", maxImagesPerColor: 30, previewLifetimeMinutes: 30,
+        category: "free-text", variantIdentity: { create: "key", initialStock: "variantKey", edit: "id", receipt: "variantIds" },
+        maxVariants: 100, maxOptionAxes: 3,
+        currency: "MAD", language: "fr", maxImagesPerGallery: 30, previewLifetimeMinutes: 30,
       }; break;
       case "list": result = { products: listProducts({ includeInactive: true }) }; break;
       case "show": result = { product: findCatalogProduct(query.get("target") ?? "") }; break;

@@ -7,12 +7,14 @@ import { pathToFileURL } from "node:url";
 const MAX_BYTES = 5 * 1024 * 1024;
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 export function configuration(env = process.env) {
-  const url = new URL(env.ZEHRI_STORE_URL || "https://zehri.ma");
-  if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
-    throw new Error("ZEHRI_STORE_URL must be an HTTPS origin (no credentials, path, query or fragment).");
+  if (!env.CRM_CATALOG_URL) throw new Error("Set CRM_CATALOG_URL to the CRM origin.");
+  const url = new URL(env.CRM_CATALOG_URL);
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if ((url.protocol !== "https:" && !(local && url.protocol === "http:")) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new Error("CRM_CATALOG_URL must be an HTTPS origin (HTTP allowed only on loopback; no credentials, path, query or fragment).");
   }
-  if (!env.ZEHRI_CATALOG_KEY || env.ZEHRI_CATALOG_KEY.length < 32) throw new Error("Set ZEHRI_CATALOG_KEY (at least 32 characters).");
-  return { origin: url.origin, key: env.ZEHRI_CATALOG_KEY };
+  if (!env.CRM_CATALOG_KEY || env.CRM_CATALOG_KEY.length < 32) throw new Error("Set CRM_CATALOG_KEY (at least 32 characters).");
+  return { origin: url.origin, key: env.CRM_CATALOG_KEY };
 }
 
 export async function api(config, query = "", body, upload) {
@@ -65,8 +67,8 @@ export async function prepare(config, inputFile, outputFile) {
   const uploads = [];
   const output = path.resolve(outputFile);
   const imageDir = `${output}.images`;
-  for (const color of operation.data?.colors ?? []) {
-    color.images = await Promise.all(color.images.map(async (image, index) => {
+  for (const gallery of [operation.data, ...(operation.data?.variants ?? [])].filter(gallery => gallery?.images)) {
+    gallery.images = await Promise.all(gallery.images.map(async (image, index) => {
       if (typeof image !== "string") throw new Error("Images must be paths or HTTPS URLs.");
       if (image.startsWith("/api/media/") || image.startsWith("/images/")) return image;
       const bytes = await sourceBytes(image, path.dirname(path.resolve(inputFile)));
@@ -82,14 +84,14 @@ export async function prepare(config, inputFile, outputFile) {
   }
   const result = await api(config, "", { action: "preview", operation });
   if (result.alreadyApplied) return result;
-  const plan = { version: 1, origin: config.origin, operation: result.operation, preview: result.preview, uploads };
+  const plan = { version: 2, origin: config.origin, operation: result.operation, preview: result.preview, uploads };
   await writeFile(output, JSON.stringify(plan, null, 2), { mode: 0o600 });
   return { plan: output, origin: config.origin, ...result };
 }
 
 export async function apply(config, planFile) {
   const plan = JSON.parse(await readFile(planFile, "utf8"));
-  if (plan.version !== 1 || plan.origin !== config.origin) throw new Error("Plan version or store origin mismatch. Prepare a new preview.");
+  if (plan.version !== 2 || plan.origin !== config.origin) throw new Error("Plan version or store origin mismatch. Prepare a new preview.");
   // A lost apply response must not cause another upload or another product creation.
   const found = await api(config, `?command=receipt&requestId=${encodeURIComponent(plan.operation.requestId)}`);
   if (!found.receipt) {
@@ -113,10 +115,10 @@ export async function main(args = process.argv.slice(2)) {
   const [command, ...rest] = args;
   if (!command || command === "--help") {
     return { usage: [
-    "catalog-client.mjs capabilities | list | show <id-or-slug> | receipt <requestId>",
-      "catalog-client.mjs preview <operation.json> <plan.json>",
-      "catalog-client.mjs apply <plan.json> --yes",
-    ], env: ["ZEHRI_STORE_URL=https://zehri.ma", "ZEHRI_CATALOG_KEY=<runtime secret>"] };
+      "catalog-agent-client.mjs capabilities | list | show <id-or-slug> | receipt <requestId>",
+      "catalog-agent-client.mjs preview <operation.json> <plan.json>",
+      "catalog-agent-client.mjs apply <plan.json> --yes",
+    ], env: ["CRM_CATALOG_URL=http://localhost:3000", "CRM_CATALOG_KEY=<runtime secret>"] };
   }
   const config = configuration();
   if (["capabilities", "list"].includes(command) && rest.length === 0) return api(config, `?command=${command}`);

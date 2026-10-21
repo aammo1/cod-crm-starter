@@ -52,3 +52,22 @@ next-env.d.ts
 
 # playwright-cli session artifacts
 .playwright-cli/
+
+# local operational secrets, snapshots and browser output
+*.key
+*.p12
+*.pfx
+/secrets/
+/backups/
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+/playwright-report/
+/test-results/
+/blob-report/
+**/.auth/
+/docker-compose.local.yml
+/compose.override.yml
+/docker-compose.override.yml
+*.log
