@@ -1,0 +1,22 @@
+services:
+  crm:
+    build: .
+    ports: ["3000:3000"]
+    environment:
+      DB_PATH: /app/data/crm.db
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET is required (openssl rand -base64 32)}
+      OZON_CLIENT_ID: ${OZON_CLIENT_ID:-}
+      OZON_API_KEY: ${OZON_API_KEY:-}
+      OZON_BASE_URL: ${OZON_BASE_URL:-https://api.ozonexpress.ma}
+      OZON_USE_CUSTOM_TRACKING: ${OZON_USE_CUSTOM_TRACKING:-0}
+      OZON_SUBMIT_INTERVAL_SEC: ${OZON_SUBMIT_INTERVAL_SEC:-15}
+      OZON_POLL_INTERVAL_MIN: ${OZON_POLL_INTERVAL_MIN:-30}
+      OZON_TRACK_BATCH: ${OZON_TRACK_BATCH:-25}
+      # "mock" = no real Ozon calls (local/staging only; leave empty in production)
+      DELIVERY_PROVIDER: ${DELIVERY_PROVIDER:-mock}
+      SECURITY_ALLOWED_ORIGINS: ${SECURITY_ALLOWED_ORIGINS:-}
+      UPLOAD_DIR: /app/data/uploads
+    volumes:
+      - crm-data:/app/data
+volumes:
+  crm-data:
