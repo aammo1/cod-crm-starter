@@ -17,7 +17,8 @@ declare module "next-auth/jwt" {
 export const authConfig = {
   trustHost: true,
   pages: { signIn: "/login" },
-  session: { strategy: "jwt" },
+  // Rolling 7-day window (default 30): an idle or copied token expires sooner.
+  session: { strategy: "jwt", maxAge: 7 * 24 * 60 * 60 },
   callbacks: {
     jwt({ token, user }): JWT {
       if (user) {

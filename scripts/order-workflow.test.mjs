@@ -16,8 +16,8 @@ process.env.DELIVERY_PROVIDER = "mock";
 process.env.OZON_CLIENT_ID = "";
 process.env.OZON_API_KEY = "";
 process.env.AUTH_SECRET = "isolated-order-workflow-test-secret-32-characters";
-process.env.META_PIXEL_ID = "";
-process.env.META_ACCESS_TOKEN = "";
+process.env.FACEBOOK_PIXEL_ID = "";
+process.env.FACEBOOK_ACCESS_TOKEN = "";
 
 const { getDb } = loadSource("@/lib/db");
 const { getCrmOrder: getOrder } = loadSource("@/lib/services/orders");

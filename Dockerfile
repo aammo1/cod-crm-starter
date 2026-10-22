@@ -27,6 +27,8 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/scripts ./scripts
+# Plain-ESM helper imported by scripts/purge-confirmed-tests.mjs (src/ is not otherwise shipped).
+COPY --from=builder /app/src/lib/services/inventory-test-cleanup.mjs ./src/lib/services/inventory-test-cleanup.mjs
 # Include the full package for CLI scripts as well as traced server imports.
 # better-sqlite3 13 ships Node >=22 musl prebuilds (no compiler/install script).
 COPY --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3

@@ -423,6 +423,10 @@ function isTrackingNotFound(value: unknown): boolean {
 }
 
 export class OzonExpressAdapter implements DeliveryProvider {
+  isConfigured(): boolean {
+    return readCredentials() !== null;
+  }
+
   async listCities(): Promise<City[]> {
     const creds = requireCredentials();
     const body = await requestJson(creds, `${creds.baseUrl}/cities`, "cities", { method: "GET" });

@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { CancelReasonChips } from "@/components/crm/cancel-reason-chips";
 import { Input } from "@/components/ui/input";
 
 export function CancelOrder({ orderId }: { orderId: string }) {
@@ -48,6 +49,7 @@ export function CancelOrder({ orderId }: { orderId: string }) {
         disabled={pending}
         className="border-input bg-card text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring"
       />
+      <CancelReasonChips value={reason} onPick={setReason} disabled={pending} />
       <Button variant="destructive" size="sm" onClick={cancel} disabled={pending || !reason.trim()}>
         {pending ? "Annulation…" : "Annuler la commande"}
       </Button>

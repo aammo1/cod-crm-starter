@@ -285,6 +285,8 @@ export interface OrderListItem {
   assignedToName: string | null;
   nextCallbackAt: string | null;
   duplicateOf: string | null;
+  /** Logged "pas de réponse" call attempts. */
+  noAnswerCount: number;
 }
 
 export interface OrderListResult {
@@ -470,14 +472,15 @@ export function listOrders(options: ListOrdersOptions = {}): OrderListResult {
 
   const rows = db
     .prepare(
-      `SELECT o.*, u.name AS assigned_to_name, ${NEXT_CALLBACK_SQL} AS next_callback_at
+      `SELECT o.*, u.name AS assigned_to_name, ${NEXT_CALLBACK_SQL} AS next_callback_at,
+              (SELECT COUNT(*) FROM order_contacts c WHERE c.order_id = o.id AND c.outcome = 'no_answer') AS no_answer_count
        FROM orders o
        LEFT JOIN users u ON u.id = o.assigned_to
        ${whereSql}
        ORDER BY o.created_at DESC
        LIMIT ? OFFSET ?`,
     )
-    .all(...params, pageSize, (page - 1) * pageSize) as JoinedOrderRow[];
+    .all(...params, pageSize, (page - 1) * pageSize) as Array<JoinedOrderRow & { no_answer_count: number }>;
 
   const duplicates = findDuplicatePhones(
     rows.map((row) => ({
@@ -501,6 +504,7 @@ export function listOrders(options: ListOrdersOptions = {}): OrderListResult {
     assignedToName: row.assigned_to_name,
     nextCallbackAt: row.next_callback_at,
     duplicateOf: duplicates.get(row.id) ?? null,
+    noAnswerCount: Number(row.no_answer_count),
   }));
 
   return {
@@ -526,7 +530,10 @@ export function summarizeItems(items: Array<Pick<OrderItem, "name" | "quantity">
     .join(" · ");
 }
 
-/** SQLite expression normalizing a phone column/param (strips separators). */
+/**
+ * SQLite expression normalizing a phone column/param (strips separators).
+ * Indexed by migrations/017 (idx_orders_phone_normalized): keep both identical.
+ */
 function normalizedPhoneExpr(operand: string): string {
   return `replace(replace(replace(replace(${operand}, ' ', ''), '-', ''), '(', ''), ')', '')`;
 }
@@ -809,4 +816,58 @@ export function listCities(): CityOption[] {
   return getDb()
     .prepare("SELECT id, name FROM cities ORDER BY name COLLATE NOCASE ASC")
     .all() as CityOption[];
+}
+
+export interface CustomerHistoryOrder {
+  id: string;
+  confirmationStatus: ConfirmationStatus;
+  total: number;
+  createdAt: string;
+  archived: boolean;
+  returned: boolean;
+}
+
+export interface CustomerHistory {
+  orderCount: number;
+  confirmedCount: number;
+  cancelledCount: number;
+  returnedCount: number;
+  recent: CustomerHistoryOrder[];
+}
+
+const CUSTOMER_HISTORY_LIMIT = 8;
+
+/**
+ * Read-only past behaviour of the same phone (all other orders, archived
+ * included): helps agents spot repeat refusers before confirming.
+ */
+export function getCustomerHistory(orderId: string, phone: string): CustomerHistory {
+  const normalized = phone.replace(/[\s\-().]/g, "");
+  const rows = getDb()
+    .prepare(
+      `SELECT o.id, o.confirmation_status, o.total, o.created_at, o.archived_at,
+              EXISTS (SELECT 1 FROM returns r JOIN courier_submissions cs ON cs.id = r.submission_id
+                      WHERE cs.order_id = o.id) AS returned
+       FROM orders o
+       WHERE ${normalizedPhoneExpr("o.customer_phone")} = ${normalizedPhoneExpr("?")} AND o.id <> ?
+       ORDER BY o.created_at DESC, o.id DESC`,
+    )
+    .all(normalized, orderId) as Array<{
+      id: string; confirmation_status: ConfirmationStatus; total: number;
+      created_at: string; archived_at: string | null; returned: number;
+    }>;
+  return {
+    orderCount: rows.length,
+    confirmedCount: rows.filter((r) => r.confirmation_status === "confirmed").length,
+    cancelledCount: rows.filter((r) => r.confirmation_status === "cancelled").length,
+    returnedCount: rows.filter((r) => r.returned).length,
+    recent: rows.slice(0, CUSTOMER_HISTORY_LIMIT).map((r) => ({
+      id: r.id,
+      confirmationStatus: r.confirmation_status,
+      total: r.total,
+      createdAt: r.created_at,
+      archived: !!r.archived_at,
+      returned: !!r.returned,
+    })),
+  };
 }

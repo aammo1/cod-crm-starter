@@ -89,7 +89,8 @@ export default async function CrmLayout({
           </main>
         </div>
       </div>
-      {isAdmin && <CrmAssistant />}
+      {/* Hidden until configured: the API would only answer 503. */}
+      {isAdmin && process.env.OPENROUTER_API_KEY?.trim() ? <CrmAssistant /> : null}
     </CrmThemeProvider>
   );
 }

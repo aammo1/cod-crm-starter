@@ -8,7 +8,7 @@ export const root = fileURLToPath(new URL("../", import.meta.url));
 export function auditReleaseTree() {
   const files = [...new Set(execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8" }).split("\0"))]
     .filter(file => file && existsSync(path.join(root, file))).sort();
-  const allowedRoots = new Set(["src", "scripts", "migrations", "docs", "specs", "examples", "integrations", "public"]);
+  const allowedRoots = new Set([".github", "src", "scripts", "migrations", "docs", "specs", "examples", "integrations", "public"]);
   const allowedRootFiles = new Set([".dockerignore", ".env.example", ".gitignore", "AGENTS.md", "Dockerfile", "README.md", "components.json", "docker-compose.yml", "eslint.config.mjs", "next.config.ts", "package-lock.json", "package.json", "postcss.config.mjs", "tsconfig.json"]);
   const fonts = new Set(["src/app/fonts/inter-latin-var.woff2", "src/app/fonts/playfair-latin-var.woff2", "src/app/fonts/playfair-latin-italic-var.woff2"]);
   for (const file of files) {

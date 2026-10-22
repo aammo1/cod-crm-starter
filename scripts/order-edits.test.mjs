@@ -11,8 +11,8 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-order-edits-"));
 process.env.DB_PATH = path.join(dir, "test.db");
 process.env.DELIVERY_PROVIDER = "mock";
 process.env.AUTH_SECRET = "isolated-order-edits-test-secret-32-characters";
-process.env.META_PIXEL_ID = "";
-process.env.META_ACCESS_TOKEN = "";
+process.env.FACEBOOK_PIXEL_ID = "";
+process.env.FACEBOOK_ACCESS_TOKEN = "";
 const { getDb } = loadSource("@/lib/db");
 const { getCrmOrder: getOrder } = loadSource("@/lib/services/orders");
 const { editOrder, getOrderEditState, listOrderEdits } = loadSource("@/lib/services/order-edits");
@@ -285,4 +285,14 @@ test("receipt failure rolls back no-offer checkout shipping snapshot together wi
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM storefront_request_receipts").get().n, before.receipts);
   assert.equal(service.checkout(key, body).status, 201);
   assert.equal(service.checkout(key, body).status, 200);
+});
+
+test("unchanged lines on a sold-out variant still allow discount/shipping edits; added quantity is stock-checked", () => {
+  genericProduct(db, "sold", 200, [["sold-1", []]]);
+  orderFixture(db, "sold-out", { productId: "sold", variantId: "sold-1", price: 200 });
+  const lines = [{ variantId: "sold-1", qty: 1 }];
+  const state = editOrder("sold-out", input("sold-out", { lines, discountType: "fixed", discountValue: 20 }), actor);
+  assert.equal(state.snapshot.total, 209);
+  assert.throws(() => editOrder("sold-out", input("sold-out", { lines: [{ variantId: "sold-1", qty: 2 }] }), actor), { status: 409 });
+  assert.equal(listOrderEdits("sold-out").length, 1);
 });

@@ -6,6 +6,8 @@ import { CheckCircle2Icon, XCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { VariantOption as CommerceVariantOption } from "@/lib/commerce-types";
 
+import { CancelReasonChips } from "@/components/crm/cancel-reason-chips";
+import { CityCombobox } from "@/components/crm/city-combobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -325,18 +327,14 @@ export function ConfirmOrder({
           <Label htmlFor="confirm-city" className="text-muted-foreground">
             Ville
           </Label>
-          <Select value={cityId || undefined} onValueChange={setCityId} disabled={confirming || cancelling}>
-            <SelectTrigger id="confirm-city" className={fieldClassName}>
-              <SelectValue placeholder="Choisir la ville…" />
-            </SelectTrigger>
-            <SelectContent>
-              {cities.map((city) => (
-                <SelectItem key={city.id} value={String(city.id)}>
-                  {city.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <CityCombobox
+            id="confirm-city"
+            cities={cities}
+            value={cityId}
+            onChange={setCityId}
+            disabled={confirming || cancelling}
+            className={fieldClassName}
+          />
         </div>
       </div>
 
@@ -375,6 +373,9 @@ export function ConfirmOrder({
             {cancelling ? "Annulation…" : "Annuler la commande"}
           </Button>
         </div>
+      </div>
+      <div className="mt-2">
+        <CancelReasonChips value={reason} onPick={setReason} disabled={confirming || cancelling} />
       </div>
     </section>
   );

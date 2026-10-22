@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { getDb } from "@/lib/db";
+import { trustedClientIp } from "@/lib/services/security-budgets";
 import type { CommerceOrderItem as OrderItem } from "@/lib/commerce-types";
 import { metaContextSchema, type MetaPurchase } from "@/lib/meta-shared";
 
@@ -15,7 +16,8 @@ export function requestMetaContext(request: Request, raw: unknown) {
   const origin = request.headers.get("origin");
   if (origin !== source.origin || source.host !== request.headers.get("host") ||
       /^(\/crm|\/admin|\/login)(\/|$)/.test(source.pathname)) return;
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? request.headers.get("x-real-ip") ?? "";
+  // Only a verified proxy header (SECURITY_TRUSTED_IP_HEADER); never client-supplied XFF.
+  const ip = trustedClientIp(request) ?? "";
   return {
     ...parsed.data,
     sourceUrl: source.origin + source.pathname,
@@ -72,10 +74,11 @@ export function finalizeMetaPurchases() {
       const snapshot = JSON.parse(row.snapshot_json!) as Snapshot;
       const context = JSON.parse(row.context_json) as Context;
       const phone = snapshot.customerPhone.replace(/\D/g, "");
-      const names = snapshot.customerName.trim().split(/\s+/);
+      const names = snapshot.customerName.trim().split(/\s+/).filter(Boolean);
       Object.assign(context.userData, {
         ph: [hash(phone)], external_id: [hash(phone)],
-        fn: [hash(names[0])], ...(names.length > 1 ? { ln: [hash(names.slice(1).join(" "))] } : {}),
+        ...(names.length > 0 ? { fn: [hash(names[0])] } : {}),
+        ...(names.length > 1 ? { ln: [hash(names.slice(1).join(" "))] } : {}),
         country: [hash("ma")],
       });
       enqueueMeta("Purchase", context, purchaseFor(row.order_id)!.params, snapshot.eventTime);
@@ -112,11 +115,14 @@ export async function metaTick() {
         throw new Error("CAPI rejected event");
       }
       db.prepare("UPDATE meta_events SET sent_at = ?, lease = NULL WHERE event_id = ? AND lease = ?").run(Date.now(), row.event_id, lease);
-    } catch {
+    } catch (error) {
+      console.error("[meta] envoi CAPI en échec", { attempts: row.attempts, kind: error instanceof Error ? error.name : "unknown" });
       db.prepare("UPDATE meta_events SET available_at = ?, failed = ?, lease = NULL WHERE event_id = ? AND lease = ?")
         .run(Date.now() + Math.min(3_600_000, 5000 * 2 ** Math.min(row.attempts, 10)), row.attempts >= 48 ? 1 : 0, row.event_id, lease);
     }
   }
   db.prepare("DELETE FROM meta_events WHERE sent_at < ?").run(Date.now() - 7 * 86400_000);
+  // Abandoned events still hold hashed PII plus raw IP/UA: purge them too.
+  db.prepare("DELETE FROM meta_events WHERE failed = 1 AND available_at < ?").run(Date.now() - 7 * 86400_000);
   db.prepare("DELETE FROM meta_purchases WHERE queued = 1 AND deadline < ?").run(Date.now() - 30 * 86400_000);
 }

@@ -54,6 +54,8 @@ export type PdfFormat = "standard" | "a4" | "tickets10x10";
  * courier response shapes.
  */
 export interface DeliveryProvider {
+  /** False when required credentials are absent; callers must not consume jobs. */
+  isConfigured?(): boolean;
   listCities(): Promise<City[]>;
   createParcel(input: CreateParcelInput): Promise<CreateParcelResult>;
   getParcelInfo(trackingNumber: string): Promise<ParcelInfoResult>;

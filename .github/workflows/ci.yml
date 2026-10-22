@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Only the exact value "mock" selects the mock courier; never call live couriers in CI.
+      DELIVERY_PROVIDER: mock
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Service suites (loopback-only network)
+        run: |
+          export NODE_OPTIONS="--import=$GITHUB_WORKSPACE/scripts/block-external-network.mjs"
+          npm test
+          node --test examples/nextjs/verify.test.mjs
+      - run: npm run build
+      - name: Bootstrap against the built app
+        run: |
+          export NODE_OPTIONS="--import=$GITHUB_WORKSPACE/scripts/block-external-network.mjs"
+          npm run test:bootstrap

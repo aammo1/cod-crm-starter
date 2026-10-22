@@ -99,6 +99,10 @@ export function editOrder(orderId: string, body: unknown, actor: { id: string; n
     const upsellItems: OrderItem[] = [];
     const quantities = new Map<string, number>();
     const usedUpsells = new Set<number>();
+    const beforeQty = new Map<string, number>();
+    for (const item of [...before.snapshot.items, ...before.snapshot.upsellItems]) {
+      beforeQty.set(item.variant_id, (beforeQty.get(item.variant_id) ?? 0) + item.quantity);
+    }
     for (const line of input.lines) {
       const variant = getVariantById(line.variantId);
       if (!variant || !variant.active || !variant.productActive) throw new OrderEditError(400, "Un produit ou une variante n'est plus disponible.");
@@ -114,7 +118,9 @@ export function editOrder(orderId: string, body: unknown, actor: { id: string; n
       const qty = (quantities.get(line.variantId) ?? 0) + line.qty;
       quantities.set(line.variantId, qty);
       if (qty > 10) throw new OrderEditError(400, "Maximum 10 unités par variante, toutes lignes confondues.");
-      if (availableFor(line.variantId) < qty) throw new OrderEditError(409, `Stock insuffisant : ${variant.product.name} — ${variant.label}.`);
+      // Only added/increased quantity needs stock: unchanged lines on a sold-out
+      // variant must not block discount/shipping edits (confirmation gates stock).
+      if (qty > (beforeQty.get(line.variantId) ?? 0) && availableFor(line.variantId) < qty) throw new OrderEditError(409, `Stock insuffisant : ${variant.product.name} — ${variant.label}.`);
       const original = line.upsellIndex === undefined ? null : before.snapshot.upsellItems[line.upsellIndex];
       const item: OrderItem = original
         ? { ...replaceOrderVariant(original, variant), quantity: line.qty, line_total: unitPrice * line.qty }

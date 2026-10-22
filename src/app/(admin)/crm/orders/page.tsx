@@ -50,10 +50,12 @@ function ordersUrl(params: {
   tracking?: string[];
   page?: number;
   archived?: boolean;
+  mine?: boolean;
 }): string {
   const sp = new URLSearchParams();
   if (params.status) sp.set("status", params.status);
   if (params.archived) sp.set("archived", "1");
+  if (params.mine) sp.set("mine", "1");
   if (params.q) sp.set("q", params.q);
   if (params.callbackDue) sp.set("callbackDue", "1");
   if (params.submission && params.submission.length > 0) {
@@ -109,7 +111,9 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const user = await requireUser();
   const sp = await searchParams;
   const archived = first(sp.archived) === "1";
-  const viewUrl = (params: Parameters<typeof ordersUrl>[0]) => ordersUrl({ archived, ...params });
+  // "Mes commandes": orders assigned to the signed-in user; kept across every view link.
+  const mine = first(sp.mine) === "1";
+  const viewUrl = (params: Parameters<typeof ordersUrl>[0]) => ordersUrl({ archived, mine, ...params });
   const now = new Date();
   const nowIso = now.toISOString();
 
@@ -146,6 +150,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     status,
     q,
     callbackDue,
+    assignedTo: mine ? user.id : undefined,
     submission: submission.length > 0 ? submission : undefined,
     tracking: tracking.length > 0 ? tracking : undefined,
     page,
@@ -219,7 +224,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link
-              href={ordersUrl({ status: "new" })}
+              href={ordersUrl({ mine, status: "new" })}
               aria-current={isATraiterActive ? "page" : undefined}
               className={cn(
                 "rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
@@ -231,7 +236,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
               À traiter
             </Link>
             <Link
-              href={ordersUrl({ status: "no_answer" })}
+              href={ordersUrl({ mine, status: "no_answer" })}
               aria-current={isSansReponseActive ? "page" : undefined}
               className={cn(
                 "rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
@@ -243,7 +248,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
               Sans réponse
             </Link>
             <Link
-              href={ordersUrl({ status: "all", callbackDue: true })}
+              href={ordersUrl({ mine, status: "all", callbackDue: true })}
               aria-current={isRappelsDuJourActive ? "page" : undefined}
               title="Tous les rappels d'aujourd'hui et en retard"
               className={cn(
@@ -256,7 +261,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
               Rappels du jour ({dueCallbacksCount})
             </Link>
             <Link
-              href={ordersUrl({ status: "all", submission: ["failed", "needs_review"] })}
+              href={ordersUrl({ mine, status: "all", submission: ["failed", "needs_review"] })}
               aria-current={isProblemesEnvoiActive ? "page" : undefined}
               className={cn(
                 "rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
@@ -266,6 +271,18 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
               )}
             >
               Problèmes d&apos;envoi
+            </Link>
+            <Link
+              href={ordersUrl({ status, q, callbackDue, submission, tracking, mine: !mine })}
+              aria-pressed={mine}
+              className={cn(
+                "rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+                mine
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+              )}
+            >
+              Mes commandes
             </Link>
           </div>
         </div> : null}
@@ -393,6 +410,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       >
         <input type="hidden" name="status" value={status} />
         {archived ? <input type="hidden" name="archived" value="1" /> : null}
+        {mine ? <input type="hidden" name="mine" value="1" /> : null}
         {callbackDue ? <input type="hidden" name="callbackDue" value="1" /> : null}
         {submission.length > 0 ? (
           <input type="hidden" name="submission" value={submission.join(",")} />
@@ -415,7 +433,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       </form>
 
       <OrderBulkActions
-        key={JSON.stringify([archived, status, q, page, callbackDue, submission, tracking, result.orders.map((o) => o.id)])}
+        key={JSON.stringify([archived, mine, status, q, page, callbackDue, submission, tracking, result.orders.map((o) => o.id)])}
         ids={result.orders.map((o) => o.id)}
         archived={archived}
         isAdmin={user.role === "admin"}

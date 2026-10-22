@@ -15,7 +15,7 @@ process.env.OZON_POLL_INTERVAL_MIN = "30";
 const { getDb } = loadSource("@/lib/db");
 import { createOrder } from "./fulfillment-fixtures.mjs";
 const { getDashboard } = loadSource("@/lib/services/dashboard");
-const { listOrders } = loadSource("@/lib/services/orders");
+const { getCustomerHistory, insertContact, listOrders } = loadSource("@/lib/services/orders");
 const { openStock } = loadSource("@/lib/services/inventory");
 const { getTrackingHealth, setAppState, TRACKING_LAST_SYNC_KEY } = loadSource("@/lib/services/tracking");
 const db = getDb();
@@ -111,4 +111,36 @@ test("tracking health flags stale parcels even when the global sync looks fresh"
 
   db.prepare("UPDATE courier_submissions SET last_sync_at = ? WHERE tracking_number IN ('H2', 'H3')").run(iso(-1));
   assert.equal(getTrackingHealth(now).failing, false);
+});
+
+test("new-order and callback cards exclude archived orders, matching their linked lists", () => {
+  for (const id of ["arch-live", "arch-hidden"]) {
+    createOrder({ id, customerName: "Cliente archive", customerPhone: "+212612345678",
+      items: [{ product_id: "p", variant_id: "low", sku: "LOW", name: "Lampe", variant_label: "USB", options: [], quantity: 1, unit_price: 300, line_total: 300 }],
+      upsellOffer: null, subtotal: 300, shipping: 29, total: 329 });
+  }
+  db.prepare("UPDATE orders SET archived_at = ? WHERE id = 'arch-hidden'").run(iso());
+  const dashboard = getDashboard(now);
+  assert.equal(dashboard.newOrders.count, listOrders({ status: "new", pageSize: 100 }).total);
+  assert.ok(!dashboard.newOrders.rows.some((row) => row.orderId === "arch-hidden"));
+  assert.equal(dashboard.callbacksDue.count, listOrders({ status: "all", callbackDue: true, pageSize: 100 }).total);
+});
+
+test("customer history counts other orders of the same phone and list rows expose no-answer attempts", () => {
+  const line = [{ product_id: "p", variant_id: "low", sku: "LOW", name: "Lampe", variant_label: "USB", options: [], quantity: 1, unit_price: 300, line_total: 300 }];
+  for (const id of ["hist-now", "hist-old-1", "hist-old-2"]) {
+    createOrder({ id, customerName: "Cliente historique", customerPhone: "+212 6 11 22 33 44",
+      items: line, upsellOffer: null, subtotal: 300, shipping: 29, total: 329 });
+  }
+  db.prepare("UPDATE orders SET confirmation_status = 'cancelled' WHERE id IN ('hist-old-1', 'hist-old-2')").run();
+  const history = getCustomerHistory("hist-now", "+212611223344");
+  assert.equal(history.orderCount, 2);
+  assert.equal(history.cancelledCount, 2);
+  assert.ok(!history.recent.some((o) => o.id === "hist-now"));
+  assert.equal(getCustomerHistory("hist-now", "+212600000000").orderCount, 0);
+
+  insertContact({ orderId: "hist-now", agentId: null, channel: "phone", outcome: "no_answer" });
+  insertContact({ orderId: "hist-now", agentId: null, channel: "phone", outcome: "no_answer" });
+  const row = listOrders({ status: "all", q: "hist-now", pageSize: 100 }).orders.find((o) => o.id === "hist-now");
+  assert.equal(row.noAnswerCount, 2);
 });

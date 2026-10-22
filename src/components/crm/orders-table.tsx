@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangleIcon } from "lucide-react";
+import { AlertTriangleIcon, PhoneIcon } from "lucide-react";
 
 import { CopyButton } from "@/components/crm/copy-button";
 import { OrderSelection } from "@/components/crm/order-bulk-actions";
@@ -136,10 +136,29 @@ export function OrdersTable({
               </td>
               <td className="px-4 py-3">
                 <span className="block text-foreground">{order.customerName}</span>
-                <CopyButton
-                  value={order.customerPhone}
-                  label={order.customerPhone}
-                />
+                <span className="flex items-center gap-1">
+                  <a
+                    href={`tel:${order.customerPhone}`}
+                    aria-label={`Appeler ${order.customerName}`}
+                    className="inline-flex min-h-8 items-center gap-1 rounded-md py-1 pr-1 text-xs text-foreground underline-offset-2 hover:underline"
+                  >
+                    <PhoneIcon className="size-3.5 text-muted-foreground" aria-hidden />
+                    {order.customerPhone}
+                  </a>
+                  <CopyButton value={order.customerPhone} label="" className="text-muted-foreground hover:text-foreground" />
+                </span>
+                {order.noAnswerCount > 0 ? (
+                  <span
+                    title="Appels sans réponse enregistrés"
+                    className={
+                      order.noAnswerCount >= 3
+                        ? "mt-1 inline-flex rounded-full border border-[var(--crm-danger)]/40 bg-[var(--crm-danger-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--crm-danger)]"
+                        : "mt-1 inline-flex rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground"
+                    }
+                  >
+                    {order.noAnswerCount} {order.noAnswerCount > 1 ? "tentatives" : "tentative"} sans réponse
+                  </span>
+                ) : null}
               </td>
               <td className="max-w-[260px] px-4 py-3 text-muted-foreground">
                 <span className="line-clamp-2">{order.itemsSummary}</span>

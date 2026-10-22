@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  formatCasablancaWallTime,
   getInOneHourCasablanca,
   getTomorrowCasablancaAt10,
 } from "@/lib/callback-time";
@@ -44,6 +45,8 @@ export function ContactLogForm({ orderId, orderStatus }: ContactLogFormProps) {
   const [channel, setChannel] = useState<string>("phone");
   const [note, setNote] = useState("");
   const [nextCallbackAt, setNextCallbackAt] = useState("");
+  // Set on focus (not render) to avoid an SSR/client hydration mismatch.
+  const [minCallbackAt, setMinCallbackAt] = useState<string>();
   const [pending, setPending] = useState(false);
 
   const submitting = useRef(false);
@@ -298,6 +301,8 @@ export function ContactLogForm({ orderId, orderStatus }: ContactLogFormProps) {
               ref={dateInputRef}
               type="datetime-local"
               required
+              min={minCallbackAt}
+              onFocus={() => setMinCallbackAt(formatCasablancaWallTime(new Date()))}
               value={nextCallbackAt}
               onChange={(event) => setNextCallbackAt(event.target.value)}
               className="border-input bg-card text-foreground"

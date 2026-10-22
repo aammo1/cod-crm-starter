@@ -29,11 +29,13 @@ import {
 } from "@/components/crm/status-badge";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/auth-guards";
+import { getStoreSettings } from "@/lib/services/store-settings";
 import type { CommerceOrderItem } from "@/lib/commerce-types";
 import { formatMad } from "@/lib/pricing";
 import {
   formatCasablanca,
   getCrmOrder,
+  getCustomerHistory,
   listAgents,
   listCities,
   type CrmOrder,
@@ -79,8 +81,10 @@ function waButton(
   trackingNumber: string | null,
   key: WaTemplateKey,
   label: string,
+  storeName: string,
 ) {
   const href = buildWaLink(order.customerPhone, key, {
+    boutique: storeName,
     nom: order.customerName,
     produits: itemsSummaryForWa(order),
     total: formatMad(order.total),
@@ -167,6 +171,8 @@ export default async function OrderDetailPage({
   const cities = listCities();
   const editState = getOrderEditState(id);
   const editHistory = listOrderEdits(id);
+  const customerHistory = getCustomerHistory(order.id, order.customerPhone);
+  const { storeName } = getStoreSettings();
   let shippingRules;
   let pricingError;
   try { shippingRules = orderShippingRules(id); }
@@ -214,9 +220,9 @@ export default async function OrderDetailPage({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {waButton(order, trackingNumber, "confirmation", "Confirmation")}
-        {waButton(order, trackingNumber, "rappel", "Rappel")}
-        {waButton(order, trackingNumber, "expedition", "Expédition")}
+        {waButton(order, trackingNumber, "confirmation", "Confirmation", storeName)}
+        {waButton(order, trackingNumber, "rappel", "Rappel", storeName)}
+        {waButton(order, trackingNumber, "expedition", "Expédition", storeName)}
 
         <span className="mx-1 hidden h-6 w-px bg-border sm:block" />
 
@@ -290,6 +296,48 @@ export default async function OrderDetailPage({
                 </dd>
               </div>
             </dl>
+          </section>
+
+          <section className="rounded-xl border border-border bg-card p-5 text-card-foreground">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Historique client
+            </h2>
+            {customerHistory.orderCount === 0 ? (
+              <p className="text-sm text-muted-foreground">Première commande avec ce numéro.</p>
+            ) : (
+              <>
+                {customerHistory.returnedCount > 0 || customerHistory.cancelledCount >= 2 ? (
+                  <p
+                    role="note"
+                    className="mb-3 rounded-lg border border-[var(--crm-warning)]/40 bg-[var(--crm-warning-bg)] px-3 py-2 text-sm font-medium text-[var(--crm-warning)]"
+                  >
+                    ⚠ Client à risque : {customerHistory.returnedCount} retour(s), {customerHistory.cancelledCount} annulation(s)
+                    sur {customerHistory.orderCount} autre(s) commande(s). Vérifiez bien avant de confirmer.
+                  </p>
+                ) : null}
+                <p className="mb-3 text-sm text-muted-foreground">
+                  {customerHistory.orderCount} autre(s) commande(s) · {customerHistory.confirmedCount} confirmée(s) ·{" "}
+                  {customerHistory.cancelledCount} annulée(s) · {customerHistory.returnedCount} retour(s)
+                </p>
+                <ul className="divide-y divide-border text-sm">
+                  {customerHistory.recent.map((past) => (
+                    <li key={past.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                      <Link href={`/crm/orders/${past.id}`} className="font-mono text-foreground underline-offset-2 hover:underline">
+                        {past.id}
+                      </Link>
+                      <StatusBadge status={past.confirmationStatus} />
+                      {past.returned ? (
+                        <span className="rounded-full border border-destructive/40 px-2 py-0.5 text-xs text-destructive">Retour</span>
+                      ) : null}
+                      {past.archived ? <span className="text-xs text-muted-foreground">Archivée</span> : null}
+                      <span className="ml-auto text-muted-foreground">
+                        {formatMad(past.total)} · {formatCasablanca(past.createdAt)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </section>
 
           <section className="rounded-xl border border-border bg-card p-5 text-card-foreground">

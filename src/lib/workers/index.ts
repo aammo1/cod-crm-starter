@@ -30,10 +30,21 @@ export function startWorkers(): void {
   const g = globalThis as { __crmWorkersStarted?: boolean };
   if (g.__crmWorkersStarted) return;
   g.__crmWorkersStarted = true;
-  startSubmissionWorker();
-  startTrackingWorker();
-  startMetaWorker();
+  // Isolated: one worker failing to boot must not silently disable the others.
+  startSafely("submission", startSubmissionWorker);
+  startSafely("tracking", startTrackingWorker);
+  startSafely("meta", startMetaWorker);
   void refreshCitiesLoop();
+}
+
+function startSafely(name: string, start: () => void): void {
+  try {
+    start();
+  } catch (err) {
+    console.error(
+      `[workers] démarrage ${name} en échec : ${redactText(err instanceof Error ? err.message : String(err))}`,
+    );
+  }
 }
 
 /** Which worker timers are registered in this process (consumed by /api/health). */

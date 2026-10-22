@@ -11,6 +11,8 @@ import type { DeliveryProvider } from "@/lib/shipping/provider";
 const BATCH_SIZE = 5;
 const DEFAULT_INTERVAL_SEC = 15;
 const MIN_INTERVAL_SEC = 5;
+const REQUEUE_DELAY_MS = 60_000;
+const STALE_SUBMITTING_MS = 5 * 60_000;
 
 function intervalMs(): number {
   const raw = Number(process.env.OZON_SUBMIT_INTERVAL_SEC);
@@ -63,6 +65,17 @@ function resolveStaleSubmitting(): void {
     .run(now);
 }
 
+/** Pre-network failure: no courier request was sent, so a delayed retry is safe. */
+function requeue(id: string, lastError: string): void {
+  const now = Date.now();
+  getDb()
+    .prepare(
+      `UPDATE courier_submissions SET status = 'queued', last_error = ?, next_retry_at = ?, updated_at = ?
+       WHERE id = ? AND status = 'submitting'`,
+    )
+    .run(lastError, new Date(now + REQUEUE_DELAY_MS).toISOString(), new Date(now).toISOString(), id);
+}
+
 async function processOne(provider: DeliveryProvider, id: string): Promise<void> {
   const db = getDb();
   const claimed = db
@@ -73,41 +86,71 @@ async function processOne(provider: DeliveryProvider, id: string): Promise<void>
     .run(nowIso(), id);
   if (claimed.changes === 0) return;
 
-  const submission = getSubmission(id);
-  if (!submission) return;
-
-  const order = getOrder(submission.orderId);
-  if (!order) {
-    setStatus(id, "failed", { lastError: "Commande introuvable" });
-    return;
-  }
-  if (order.confirmationStatus === "cancelled") {
-    setStatus(id, "failed", { lastError: "Commande annulée — pas de création de colis" });
-    return;
-  }
-
+  // Everything after the claim must settle the row: a throw here would leave it
+  // 'submitting' (cancel/resolve blocked) until the next stale sweep.
+  let requestSent = false;
   try {
+    const submission = getSubmission(id);
+    if (!submission) {
+      setStatus(id, "failed", { lastError: "Soumission introuvable" });
+      return;
+    }
+    const order = getOrder(submission.orderId);
+    if (!order) {
+      setStatus(id, "failed", { lastError: "Commande introuvable" });
+      return;
+    }
+    if (order.confirmationStatus === "cancelled") {
+      setStatus(id, "failed", { lastError: "Commande annulée — pas de création de colis" });
+      return;
+    }
+
     const input = buildCreateParcelInput(submission, order);
+    requestSent = true;
     const result = await provider.createParcel(input);
     setStatus(id, "submitted", {
       trackingNumber: result.trackingNumber,
-      rawResponseJson: JSON.stringify(result.raw) ?? null,
+      rawResponseJson: redactRaw(result.raw),
     });
   } catch (err) {
-    if (err instanceof ProviderError && err.kind === "permanent") {
-      setStatus(id, "failed", { lastError: redactText(err.message) });
-      return;
+    const message = redactText(err instanceof Error ? err.message : String(err));
+    try {
+      if (!requestSent) {
+        requeue(id, `Erreur avant envoi transporteur : ${message}`);
+      } else if (err instanceof ProviderError && err.kind === "permanent") {
+        setStatus(id, "failed", { lastError: message });
+      } else {
+        setStatus(id, "needs_review", { lastError: message });
+      }
+    } catch (settleErr) {
+      // Left 'submitting': the stale sweep moves it to needs_review.
+      console.error(
+        `[submission] statut non enregistré pour ${id} : ${redactText(settleErr instanceof Error ? settleErr.message : String(settleErr))}`,
+      );
     }
-    setStatus(id, "needs_review", {
-      lastError: redactText(
-        err instanceof ProviderError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : String(err),
-      ),
-    });
   }
+}
+
+function redactRaw(raw: unknown): string | null {
+  const json = JSON.stringify(raw);
+  return json === undefined ? null : redactText(json);
+}
+
+/**
+ * A 'submitting' row older than any possible in-flight request (drains are
+ * serialized per process) is unknowable: route it to manual review.
+ */
+function resolveOldSubmitting(): void {
+  const cutoff = new Date(Date.now() - STALE_SUBMITTING_MS).toISOString();
+  getDb()
+    .prepare(
+      `UPDATE courier_submissions
+       SET status = 'needs_review',
+           last_error = COALESCE(last_error, 'Soumission bloquée — vérifier sur le portail Ozon avant toute re-création'),
+           updated_at = ?
+       WHERE status = 'submitting' AND updated_at < ?`,
+    )
+    .run(nowIso(), cutoff);
 }
 
 /**
@@ -126,7 +169,20 @@ export async function drainSubmissions(provider: DeliveryProvider): Promise<void
   }
 }
 
+let warnedUnconfigured = false;
+
 async function drain(provider: DeliveryProvider): Promise<void> {
+  resolveOldSubmitting();
+  if (provider.isConfigured && !provider.isConfigured()) {
+    // Leave jobs queued: failing them would demand portal evidence for a
+    // request that was never sent.
+    if (!warnedUnconfigured) {
+      console.error("[submission] transporteur non configuré — file en attente, aucune soumission");
+      warnedUnconfigured = true;
+    }
+    return;
+  }
+  warnedUnconfigured = false;
   const due = getDb()
     .prepare(
       `SELECT id FROM courier_submissions
@@ -156,7 +212,14 @@ export function startSubmissionWorker(): void {
     console.log("[submission] MOCK provider actif — aucun appel réel à Ozon");
   }
 
-  resolveStaleSubmitting();
+  try {
+    resolveStaleSubmitting();
+  } catch (err) {
+    // The per-tick sweep (resolveOldSubmitting) catches these rows later.
+    console.error(
+      `[submission] reprise au démarrage en échec : ${redactText(err instanceof Error ? err.message : String(err))}`,
+    );
+  }
   const provider = getProvider();
   const tick = () => {
     heartbeat();

@@ -108,6 +108,12 @@ export function getSubmission(id: string): SubmissionRow | null {
 export interface SubmissionFilter {
   status?: SubmissionStatus;
   orderId?: string;
+  /**
+   * Excludes parcels in a terminal tracking status (delivered/cancelled) that
+   * were submitted before this ISO instant. Recent terminal parcels stay polled
+   * so a later, provably newer status (e.g. delivered → returned) is observed.
+   */
+  terminalBefore?: string;
 }
 
 export function listSubmissions(filter: SubmissionFilter = {}): SubmissionRow[] {
@@ -120,6 +126,10 @@ export function listSubmissions(filter: SubmissionFilter = {}): SubmissionRow[] 
   if (filter.orderId) {
     clauses.push("order_id = ?");
     params.push(filter.orderId);
+  }
+  if (filter.terminalBefore) {
+    clauses.push("NOT (COALESCE(normalized_status, '') IN ('delivered','cancelled') AND created_at < ?)");
+    params.push(filter.terminalBefore);
   }
   const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
   const rows = getDb()

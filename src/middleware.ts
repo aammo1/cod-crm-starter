@@ -5,17 +5,21 @@ import { browserMutationAllowed } from "@/lib/browser-mutation";
 
 const { auth } = NextAuth(authConfig);
 
+function publicOrigin(): string | null {
+  try {
+    return process.env.CRM_PUBLIC_URL ? new URL(process.env.CRM_PUBLIC_URL).origin : null;
+  } catch {
+    return null;
+  }
+}
+
 const pageAuth = auth((req, event: NextFetchEvent) => {
   void event;
   if (!req.auth) {
-    const proto = req.headers.get("x-forwarded-proto") || "http";
-    const host =
-      req.headers.get("x-forwarded-host") ||
-      req.headers.get("host") ||
-      req.nextUrl.host;
-    const callbackPath = req.nextUrl.pathname + req.nextUrl.search;
-    const loginUrl = new URL(`${proto}://${host}/login`);
-    loginUrl.searchParams.set("callbackUrl", callbackPath);
+    // Configured public origin, never X-Forwarded-Host/Host: a spoofed header
+    // must not steer (or poison a cached) login redirect to another host.
+    const loginUrl = new URL("/login", publicOrigin() ?? req.nextUrl.origin);
+    loginUrl.searchParams.set("callbackUrl", req.nextUrl.pathname + req.nextUrl.search);
     return NextResponse.redirect(loginUrl);
   }
   return NextResponse.next();

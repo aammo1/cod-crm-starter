@@ -157,3 +157,41 @@ test("shipment descriptions keep string options, accepted bonus quantities and b
     "Chargeur test (Standard) ×1 ; Article bonus (Standard) ×1");
   assert.equal(buildSnapshotObject({ ...order, upsellStatus: "declined" }).items.length, 1);
 });
+
+test("submission worker never strands a claimed job and leaves jobs queued while unconfigured", async () => {
+  const order = (id) => {
+    createOrder({ id, customerName: "Cliente", customerPhone: "+212612345678",
+      items: [{ product_id: "p", variant_id: "v", sku: "v", name: "Chargeur test", variant_label: "Standard", options: [], quantity: 1, unit_price: 300, line_total: 300 }],
+      upsellOffer: null, subtotal: 300, shipping: 29, total: 329 });
+    return confirmOrder(id, { lines: [{ lineIndex: 0, variantId: "v" }], address: "12 rue test", cityId: 1 }, actor).submissionId;
+  };
+  const statusOf = (id) => db.prepare("SELECT status, last_error, next_retry_at FROM courier_submissions WHERE id = ?").get(id);
+
+  // Unconfigured courier: nothing is consumed, nothing is created.
+  const waiting = order("worker-unconfigured");
+  let created = 0;
+  await drainSubmissions({ isConfigured: () => false, createParcel: async () => { created++; throw new Error("unreachable"); } });
+  assert.equal(created, 0);
+  assert.equal(statusOf(waiting).status, "queued");
+
+  // Database failure before any courier request: safe delayed requeue, not stuck 'submitting'.
+  db.exec("ALTER TABLE order_contacts RENAME TO order_contacts_hidden");
+  try {
+    await drainSubmissions({ createParcel: async () => { created++; return { trackingNumber: "X", raw: {} }; } });
+  } finally {
+    db.exec("ALTER TABLE order_contacts_hidden RENAME TO order_contacts");
+  }
+  assert.equal(created, 0);
+  const requeued = statusOf(waiting);
+  assert.equal(requeued.status, "queued");
+  assert.match(requeued.last_error, /avant envoi/);
+  assert.ok(requeued.next_retry_at > new Date().toISOString());
+
+  // A row left 'submitting' long ago (crash between claim and settle) goes to manual review on the next tick.
+  db.prepare("UPDATE courier_submissions SET status = 'submitting', updated_at = ? WHERE id = ?")
+    .run(new Date(Date.now() - 10 * 60_000).toISOString(), waiting);
+  await drainSubmissions({ createParcel: async () => { created++; return { trackingNumber: "X", raw: {} }; } });
+  assert.equal(statusOf(waiting).status, "needs_review");
+  assert.equal(created, 0);
+  assert.equal(httpCalls.length, 0);
+});

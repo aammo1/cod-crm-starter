@@ -210,7 +210,7 @@ function newOrders(): DashboardList<DashboardOrderRow> {
       `SELECT o.id, o.customer_name, o.customer_phone, o.city_name, o.created_at,
               COUNT(*) OVER () AS total_count
        FROM orders o
-       WHERE o.confirmation_status = 'new'
+       WHERE o.confirmation_status = 'new' AND o.archived_at IS NULL
        ORDER BY o.created_at ASC, o.id ASC
        LIMIT ${ROW_LIMIT}`,
     )
@@ -225,18 +225,18 @@ function newOrders(): DashboardList<DashboardOrderRow> {
   }));
 }
 
-function callbacksDue(): DashboardList<DashboardOrderRow> {
+function callbacksDue(now: Date): DashboardList<DashboardOrderRow> {
   const rows = getDb()
     .prepare(
       `SELECT o.id, o.customer_name, o.customer_phone, o.city_name, o.created_at,
               ${NEXT_CALLBACK_SQL} AS next_callback_at,
               COUNT(*) OVER () AS total_count
        FROM orders o
-       WHERE ${DASHBOARD_CALLBACK_DUE_SQL}
+       WHERE ${DASHBOARD_CALLBACK_DUE_SQL} AND o.archived_at IS NULL
        ORDER BY next_callback_at ASC, o.created_at ASC
        LIMIT ${ROW_LIMIT}`,
     )
-    .all(endOfTodayCasablancaIso()) as OrderCountRow[];
+    .all(endOfTodayCasablancaIso(now)) as OrderCountRow[];
   return listFromRows(rows, (row) => ({
     orderId: row.id,
     customerName: row.customer_name,
@@ -470,7 +470,7 @@ export function getDashboard(now: Date = new Date()): DashboardData {
   return {
     generatedAt: now.toISOString(),
     newOrders: newOrders(),
-    callbacksDue: callbacksDue(),
+    callbacksDue: callbacksDue(now),
     pendingSubmissions: pendingSubmissions(),
     failedSubmissions: failedSubmissions(),
     readyBl: readyBl(),

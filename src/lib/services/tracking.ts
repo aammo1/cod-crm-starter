@@ -17,6 +17,8 @@ const DEFAULT_TRACK_BATCH = 25;
 
 /** app_state key holding the ISO timestamp of the last successful poll. */
 export const TRACKING_LAST_SYNC_KEY = "tracking_last_sync";
+/** Delivered/cancelled parcels older than this are no longer polled. */
+const TERMINAL_POLL_RETENTION_MS = 45 * 24 * 60 * 60 * 1000;
 
 export function pollIntervalMin(): number {
   const raw = Number(process.env.OZON_POLL_INTERVAL_MIN);
@@ -360,7 +362,10 @@ export async function pollOnce(provider?: DeliveryProvider): Promise<void> {
   const pollAt = new Date().toISOString();
 
   const byCode = new Map<string, SubmissionRow[]>();
-  for (const row of listSubmissions({ status: "submitted" })) {
+  for (const row of listSubmissions({
+    status: "submitted",
+    terminalBefore: new Date(Date.now() - TERMINAL_POLL_RETENTION_MS).toISOString(),
+  })) {
     const code = row.trackingNumber?.trim();
     if (!code) continue;
     const list = byCode.get(code) ?? [];

@@ -228,7 +228,10 @@ test("credentials retain attempt limits, session revocation and admin/agent sepa
   db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
   session = { user: { id: admin.id, sessionVersion: 0 } };
   assert.equal((await requireAdmin()).role, "admin");
+  // Only failures count: a correct login neither burns the account budget nor stays blocked by earlier ones.
   for (let i = 0; i < 9; i++) assert.equal(await authenticateCredentials({ ...credentials, password: "wrong" }, request()), null);
+  assert.equal((await authenticateCredentials(credentials, request())).id, agent.id);
+  for (let i = 0; i < 10; i++) assert.equal(await authenticateCredentials({ ...credentials, password: "wrong" }, request()), null);
   assert.equal(await authenticateCredentials(credentials, request()), null);
   resetBudgets();
   resetAgentPassword(agent.id, "New-Test-Password-456!", "admin-test");

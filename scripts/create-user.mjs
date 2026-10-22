@@ -9,7 +9,10 @@ function genId(length = 12) {
 
 const usage = `Usage: node scripts/create-user.mjs <email> <password> <name> <admin|agent>
 Mot de passe : entre 12 et 128 caractères.
-Exemple: node scripts/create-user.mjs admin@example.test '<mot-de-passe-12-caracteres-minimum>' 'Administrateur' admin`;
+Passez "-" comme mot de passe pour le lire depuis CREATE_USER_PASSWORD ou l'entrée standard
+(évite l'historique du shell et la liste des processus).
+Exemple: node scripts/create-user.mjs admin@example.test '<mot-de-passe-12-caracteres-minimum>' 'Administrateur' admin
+Exemple: printf '%s' "$MOT_DE_PASSE" | node scripts/create-user.mjs admin@example.test - 'Administrateur' admin`;
 
 function hashPassword(password) {
   const salt = randomBytes(16);
@@ -63,7 +66,10 @@ function applyMigrations(db) {
   }
 }
 
-const [emailArg, password, nameArg, role] = process.argv.slice(2);
+const [emailArg, passwordArg, nameArg, role] = process.argv.slice(2);
+const password = passwordArg === "-"
+  ? (process.env.CREATE_USER_PASSWORD ?? fs.readFileSync(0, "utf8").replace(/\r?\n$/, ""))
+  : passwordArg;
 if (!emailArg || !password || !nameArg || !role) {
   console.error(usage);
   process.exit(1);

@@ -53,6 +53,9 @@ export async function GET(
     headers: {
       "Content-Type": contentType,
       "Cache-Control": IMMUTABLE_CACHE,
+      // Uploaded bytes are only magic-checked: never let a browser run them as a document.
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
     },
   });
 }

@@ -44,6 +44,25 @@ export function consumeBudgets(budgets: Budget[], now = Date.now()): number {
   }).immediate();
 }
 
+/** Read-only check: Retry-After seconds if any budget is exhausted, else 0. */
+export function peekBudgets(budgets: Budget[], now = Date.now()): number {
+  const db = getDb();
+  let retryMs = 0;
+  for (const budget of budgets) {
+    const row = db.prepare("SELECT hits, expires_at FROM security_budgets WHERE key = ?")
+      .get(budget.key) as { hits: number; expires_at: number } | undefined;
+    if (row && row.expires_at > now && row.hits >= budget.limit) {
+      retryMs = Math.max(retryMs, row.expires_at - now);
+    }
+  }
+  return retryMs ? Math.ceil(retryMs / 1000) : 0;
+}
+
+export function clearBudgets(keys: string[]): void {
+  const del = getDb().prepare("DELETE FROM security_budgets WHERE key = ?");
+  for (const key of keys) del.run(key);
+}
+
 export function publicRequestBudget(request: Request, scope: "checkout" | "pixel"): number {
   const ip = trustedClientIp(request);
   const limit = scope === "checkout" ? 120 : 6000;

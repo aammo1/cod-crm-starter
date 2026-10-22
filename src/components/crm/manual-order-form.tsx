@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { CityCombobox } from "@/components/crm/city-combobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -903,23 +904,15 @@ export function ManualOrderForm({ products, cities, shippingRules }: ManualOrder
               Ville de livraison
             </Label>
             <div className="mt-1.5">
-              <Select
-                value={selectedCityId}
-                onValueChange={setSelectedCityId}
+              <CityCombobox
+                id={`${formUid}-city`}
+                cities={cities}
+                value={selectedCityId === "none" ? "" : selectedCityId}
+                onChange={(next) => setSelectedCityId(next || "none")}
                 disabled={isSubmitting || cities.length === 0}
-              >
-                <SelectTrigger id={`${formUid}-city`} className={fieldClassName}>
-                  <SelectValue placeholder="Non renseignée (à préciser à la confirmation)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Non renseignée (à préciser à la confirmation)</SelectItem>
-                  {cities.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                noneLabel="Non renseignée (à préciser à la confirmation)"
+                className={fieldClassName}
+              />
             </div>
             {cities.length === 0 ? (
               <p className="mt-1 text-[11px] text-[var(--crm-warning)]">
