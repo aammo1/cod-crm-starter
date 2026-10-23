@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { toCsv } from "@/lib/csv";
+import { toOzonPhone } from "@/lib/phone";
 import { TRACKING_STATUSES } from "@/lib/shipping/status-map";
 import {
   NEXT_CALLBACK_SQL,
@@ -68,7 +69,7 @@ export function resolveExportStatus(
 
 interface ExportRow {
   id: string; created_at: string; customer_name: string; customer_phone: string;
-  city_name: string | null; address: string | null; items_json: string;
+  city_name: string | null; address: string | null; items_json: string; upsell_status: string | null; upsell_items_json: string | null;
   subtotal: number; discount_amount: number; shipping: number; total: number;
   confirmation_status: string; agent_name: string | null;
   sub_status: string | null; tracking_number: string | null;
@@ -132,6 +133,12 @@ function parseItems(json: string): Array<{ name: string; quantity: number; varia
   }
 }
 
+/** Local form (06…/07…) for valid +212 numbers: starts with 0, so no formula-guard apostrophe. Else unchanged. */
+function localPhone(phone: string): string {
+  const local = toOzonPhone(phone);
+  return /^0[67]\d{8}$/.test(local) ? local : phone;
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -162,7 +169,7 @@ export function buildOrdersCsv(
 
   const rows = db
     .prepare(
-      `SELECT o.id, o.created_at, o.customer_name, o.customer_phone, o.city_name, o.address, o.items_json,
+      `SELECT o.id, o.created_at, o.customer_name, o.customer_phone, o.city_name, o.address, o.items_json, o.upsell_status, o.upsell_items_json,
               o.subtotal, o.discount_amount, o.shipping, o.total, o.confirmation_status,
               u.name AS agent_name,
               o.delivery_outcome, o.delivery_outcome_at, o.cod_status, o.cod_paid_at, o.source,
@@ -180,9 +187,12 @@ export function buildOrdersCsv(
     .all(...params, maxRows) as ExportRow[];
 
   const body: unknown[][] = rows.map((r) => {
-    const items = parseItems(r.items_json);
+    const items = [
+      ...parseItems(r.items_json),
+      ...(r.upsell_status === "accepted" && r.upsell_items_json ? parseItems(r.upsell_items_json) : []),
+    ];
     return [
-      r.id, fmtDate(r.created_at), r.customer_name, r.customer_phone, r.city_name ?? "", r.address ?? "",
+      r.id, fmtDate(r.created_at), r.customer_name, localPhone(r.customer_phone), r.city_name ?? "", r.address ?? "",
       summarizeItems(items), items.reduce((s, it) => s + (Number(it.quantity) || 0), 0),
       r.subtotal, r.discount_amount ?? 0, r.shipping, r.total,
       CONFIRMATION_FR[r.confirmation_status] ?? r.confirmation_status, r.agent_name ?? "",

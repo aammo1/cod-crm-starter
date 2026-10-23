@@ -120,3 +120,29 @@ test("filename date is Casablanca", () => {
   assert.match(exportFileDate(), /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(exportFileDate(new Date("2026-07-01T12:00:00Z")), "2026-07-01");
 });
+
+test("phone exports in local form without apostrophe while free text stays guarded", () => {
+  const rows = parse(buildOrdersCsv({ status: "all" }).csv);
+  const e3 = rows.find((r) => r[0] === "E3");
+  assert.equal(e3[3], "0611111111");
+  assert.equal(rows.find((r) => r[0] === "E1")[3], "0612345678");
+  assert.ok(rows.every((r) => r[0] === "Référence" || !r[3].startsWith("'")));
+  assert.equal(e3[2].startsWith("'=HYPERLINK"), true);
+});
+
+test("accepted upsell items are appended to Articles and Quantité", () => {
+  insert("E5", { created: "2026-03-05T10:00:00.000Z" });
+  db.prepare("UPDATE orders SET upsell_status = 'accepted', upsell_items_json = ? WHERE id = 'E5'")
+    .run(JSON.stringify([{ name: "Masque", quantity: 3 }]));
+  insert("E6", { created: "2026-03-06T10:00:00.000Z" });
+  db.prepare("UPDATE orders SET upsell_status = 'declined', upsell_items_json = ? WHERE id = 'E6'")
+    .run(JSON.stringify([{ name: "Masque", quantity: 3 }]));
+  const rows = parse(buildOrdersCsv({ status: "all" }).csv);
+  const e5 = rows.find((r) => r[0] === "E5");
+  assert.match(e5[6], /Sérum ×2/);
+  assert.match(e5[6], /Masque ×3/);
+  assert.equal(e5[7], "5");
+  const e6 = rows.find((r) => r[0] === "E6");
+  assert.equal(e6[7], "2");
+  db.prepare("DELETE FROM orders WHERE id IN ('E5','E6')").run();
+});

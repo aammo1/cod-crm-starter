@@ -83,18 +83,26 @@ test("dismiss and contacted", () => {
   assert.equal(leads.listOpenLeads().some((l) => l.id === id), false);
 });
 
-test("retention purges old open leads on write and list, keeps converted ones", () => {
-  const old = new Date(Date.now() - 31 * 86_400_000).toISOString();
+test("retention purges every status older than the window (created_at), keeps younger rows", () => {
+  const day = 86_400_000;
+  const old = new Date(Date.now() - 31 * day).toISOString();
+  const young = new Date(Date.now() - 29 * day).toISOString();
   const ins = db.prepare(`INSERT INTO checkout_leads (id, phone, name, items_json, status, created_at, updated_at) VALUES (?, ?, 'X', '[]', ?, ?, ?)`);
+  const count = (ids) => db.prepare(`SELECT COUNT(*) AS n FROM checkout_leads WHERE id IN (${ids.map(() => "?").join(",")})`).get(...ids).n;
   ins.run("old1", "+212600000001", "open", old, old);
   ins.run("old2", "+212600000002", "contacted", old, old);
   ins.run("old3", "+212600000003", "dismissed", old, old);
+  ins.run("old5", "+212600000005", "converted", old, old);
+  ins.run("young1", "+212600000011", "converted", young, young);
+  ins.run("young2", "+212600000012", "dismissed", young, young);
   assert.equal(leads.listOpenLeads().some((l) => l.id.startsWith("old")), false);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM checkout_leads WHERE id IN ('old1','old2')").get().n, 0);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM checkout_leads WHERE id = 'old3'").get().n, 1);
+  assert.equal(count(["old1", "old2", "old3", "old5"]), 0);
+  assert.equal(count(["young1", "young2"]), 2);
   ins.run("old4", "+212600000004", "open", old, old);
   leads.recordLead({ phone: "0700000009", items: [{ variantId: "v1", qty: 1 }] });
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM checkout_leads WHERE id = 'old4'").get().n, 0);
+  assert.equal(count(["old4"]), 0);
+  assert.equal(count(["young1", "young2"]), 2);
+  db.prepare("DELETE FROM checkout_leads WHERE id IN ('young1','young2')").run();
 });
 
 test("per-phone and per-IP budgets limit without affecting other phones", () => {

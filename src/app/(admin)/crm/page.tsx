@@ -34,11 +34,6 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-// Operational counts refresh at most once a minute; the page itself renders
-// server-side in one pass (no client fetchers).
-
-export const revalidate = 60;
-
 const NORMALIZED_STATUS_LABELS: Record<string, string> = {
   in_transit: "En transit",
   out_for_delivery: "En cours de livraison",

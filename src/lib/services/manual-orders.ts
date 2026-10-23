@@ -105,7 +105,7 @@ export function computePayloadHash(canonical: CanonicalManualPayload): string {
 
 export function createManualOrder(
   input: ManualOrderInput,
-  actor: { id: string },
+  actor: { id: string; role?: string },
 ): CreateManualOrderResult {
   const db = getDb();
   const parsed = manualOrderInputSchema.safeParse(input);
@@ -253,7 +253,11 @@ export function createManualOrder(
       city_id: cityId,
       city_name: cityName,
       source: canonical.source,
-      assigned_to: pickAssignee(db, rules.assignmentMode),
+      // An agent who creates the order keeps it (cursor untouched); admins use auto-assignment.
+      assigned_to:
+        actor.role === "agent" && rules.assignmentMode !== "manual"
+          ? actor.id
+          : pickAssignee(db, rules.assignmentMode),
       discount_type: discount > 0 ? "fixed" : "none",
       discount,
       pack_snapshot: discount > 0 ? JSON.stringify(priced.applications) : null,

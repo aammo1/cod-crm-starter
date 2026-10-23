@@ -107,3 +107,22 @@ test("manual orders are distributed too", () => {
   const got = ids.map((id) => db.prepare("SELECT assigned_to FROM orders WHERE id = ?").get(id).assigned_to);
   assert.deepEqual(got, ["A", "B"]);
 });
+
+test("agent-created manual orders are self-assigned without touching the cursor; admin uses auto-assignment", () => {
+  updateStoreSettings({ assignmentMode: "round_robin" });
+  reset();
+  const make = (actor) => createManualOrder({
+    requestId: randomUUID(), customer: { name: "Karim Alami", phone: `06${phone++}` }, address: "12 rue des Fleurs",
+    cityId: 1, source: "manual_whatsapp", items: [{ variantId, qty: 1 }],
+  }, actor);
+  const assigned = (id) => db.prepare("SELECT assigned_to FROM orders WHERE id = ?").get(id).assigned_to;
+  const cursor = () => db.prepare("SELECT value FROM app_state WHERE key = 'assignment_cursor'").get();
+  assert.equal(assigned(make({ id: "C", role: "agent" }).orderId), "C");
+  assert.equal(cursor(), undefined);
+  assert.equal(assigned(make({ id: "admin", role: "admin" }).orderId), "A");
+  assert.equal(cursor().value, "A");
+  assert.equal(assigned(make({ id: "C", role: "agent" }).orderId), "C");
+  assert.equal(cursor().value, "A");
+  updateStoreSettings({ assignmentMode: "manual" });
+  assert.equal(assigned(make({ id: "C", role: "agent" }).orderId), null);
+});

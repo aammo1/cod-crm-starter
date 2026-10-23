@@ -34,10 +34,10 @@ interface Row {
   status: LeadStatus; created_at: string; updated_at: string;
 }
 
-/** Deletes leads that were never worked (open/contacted) once they are too old. */
+/** Deletes leads of every status (incl. converted/dismissed) created more than LEAD_RETENTION_DAYS ago, so no phone/name outlives the window. Uses created_at consistently. */
 export function purgeOldLeads(now = Date.now()): number {
   const cutoff = new Date(now - LEAD_RETENTION_DAYS * 86_400_000).toISOString();
-  return getDb().prepare(`DELETE FROM checkout_leads WHERE status IN ('open','contacted') AND created_at < ?`)
+  return getDb().prepare(`DELETE FROM checkout_leads WHERE created_at < ?`)
     .run(cutoff).changes;
 }
 
