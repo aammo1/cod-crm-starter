@@ -11,7 +11,7 @@ file manifest are in [release-verification.md](release-verification.md).
 - New working repository: `/home/tal7a/Projects/cod-crm-starter`.
 - Parent directory inspected before creation; target did not exist.
 - Fresh `git init -b main`: no inherited `.git`, commits, branches, remotes or history.
-- Source initial/final status: only `?? specs/cod-crm-starter/`.
+- Source initial/final status: only `?? specs/store-crm-boilerplate/`.
 - No commit, publication, deployment, global-skill sync or spec status update.
 - Source Git-indexed application code was copied by explicit path allowlist;
   neither repository root nor `public/` was recursively copied. Text edits use
@@ -30,7 +30,7 @@ Directories were limited to these extensions, with no symlink copying:
 | `src/components/{admin,crm,ui}/` | `.tsx`: complete existing admin/CRM/UI kit |
 | `src/app/fonts/` | Three local `.woff2` font files listed below |
 | `migrations/` | `.sql`: all migrations 001–015, unchanged |
-| `specs/cod-crm-starter/` | `.md`: requirements, README, all 21 task files, copied unchanged as context |
+| `specs/store-crm-boilerplate/` | `.md`: requirements, README, all 21 task files, copied unchanged as context |
 
 Individually included configuration/code:
 

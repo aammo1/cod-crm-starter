@@ -3,7 +3,7 @@
 Single-store Moroccan COD template: storefront + CRM in one Next.js app and one
 SQLite DB, one copy per niche. Storefront locale is `fr` or `ar` (RTL) from
 `store.config.ts`; CRM UI is always French; prices integer MAD.
-Specs: `specs/cod-crm-starter/requirements.md`,
+Specs: `specs/store-crm-boilerplate/requirements.md`,
 `specs/storefront-boilerplate/requirements.md`. Work only in this repository;
 the extraction source and its env/data are read-only and must never be loaded.
 Each generated store owns its repo, deployment, SQLite, media, users, stock and
