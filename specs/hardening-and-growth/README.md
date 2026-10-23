@@ -163,7 +163,7 @@ graph TD
 - [ ] [task-33-consent-and-snap-pixel](./tasks/task-33-consent-and-snap-pixel.md) — Consent banner and Snap Pixel
 
 ### Wave 7
-- [ ] [task-34-code-cleanup](./tasks/task-34-code-cleanup.md) — Code consistency cleanup
+- [x] [task-34-code-cleanup](./tasks/task-34-code-cleanup.md) — Code consistency cleanup
 
 ### Wave 8
 - [ ] [task-35-docs-and-env-sync](./tasks/task-35-docs-and-env-sync.md) — Documentation, env examples and Compose sync

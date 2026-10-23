@@ -81,7 +81,6 @@ scripts/purge-confirmed-tests.mjs
 scripts/returns-workflow.test.mjs
 scripts/security-workflow.test.mjs
 scripts/submission-resolution.test.mjs
-scripts/sync-cities.mjs
 scripts/test-source.mjs
 scripts/tracking-workflow.test.mjs
 ```
@@ -163,7 +162,7 @@ Suites below were retained, not claimed as verified in task 01:
 | `test:order-edits-browser` | 10/15: generic variants/order fixtures; production build required |
 | `e2e-crm.mjs` | 13/15/20: source-themed seeded account/product assumptions; currently an opt-in legacy harness, do not run against a real database |
 | omitted `test:storefront` | 16/20: replace with CRM/integration-example browser checks, never require removed storefront |
-| create-user, backup, purge-confirmed-tests, sync-cities | DB paths adapted here; 19 documents explicit local env, backups and maintenance usage |
+| create-user, backup, purge-confirmed-tests | DB paths adapted here; 19 documents explicit local env, backups and maintenance usage |
 | ozon-verify | Never executed here; release verification is mock-only, live status mappings remain unverified |
 
 ## Task 01 verification

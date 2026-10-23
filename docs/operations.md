@@ -179,7 +179,7 @@ mock ; au runtime toute valeur autre que `mock` sélectionne l’adapter Ozon.
 Vérification live existante, **lecture seule et accord explicite du propriétaire** :
 
 ```sh
-node scripts/ozon-verify.mjs --yes
+npm run ozon:verify -- --live --yes
 # Facultatif après autorisation pour un code réel : ajouter --code CODE_AUTORISE
 ```
 

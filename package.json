@@ -27,7 +27,9 @@
     "backup": "node scripts/backup-db.mjs",
     "backup:verify": "node scripts/verify-backup.mjs",
     "new-store": "node scripts/new-store.mjs",
-    "perf-budget": "node scripts/perf-budget.mjs"
+    "perf-budget": "node scripts/perf-budget.mjs",
+    "ozon:verify": "node scripts/ozon-verify.mjs",
+    "purge-confirmed-tests": "node scripts/purge-confirmed-tests.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.70",

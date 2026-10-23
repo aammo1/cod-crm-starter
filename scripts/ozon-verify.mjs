@@ -3,8 +3,8 @@
 //
 // ⚠️  NE PAS EXÉCUTER sans l'autorisation explicite du propriétaire
 // (docs/operations.md, activation Ozon). Ce script effectue de VRAIS
-// appels réseau vers l'API Ozon. Il est volontairement gardé derrière le
-// drapeau --yes et la présence des identifiants dans l'environnement.
+// appels réseau vers l'API Ozon. Il est volontairement gardé derrière les
+// drapeaux --live et --yes et la présence des identifiants dans l'environnement.
 //
 // Opérations effectuées (lecture seule, aucune création de colis) :
 //   1. GET  /cities                              → comparaison avec la table `cities`
@@ -12,8 +12,8 @@
 //   3. Optionnel (--code OZE...) : tracking + parcel-info sur un vrai code
 //
 // Usage:
-//   OZON_CLIENT_ID=... OZON_API_KEY=... node scripts/ozon-verify.mjs --yes
-//   OZON_CLIENT_ID=... OZON_API_KEY=... node scripts/ozon-verify.mjs --yes --code OZE123456789
+//   OZON_CLIENT_ID=... OZON_API_KEY=... node scripts/ozon-verify.mjs --live --yes
+//   OZON_CLIENT_ID=... OZON_API_KEY=... node scripts/ozon-verify.mjs --live --yes --code OZE123456789
 //
 // Sortie: corps JSON bruts observés — conserver hors du dépôt public, expurgés
 // après vérification. Les identifiants ne sont JAMAIS affichés.
@@ -26,9 +26,10 @@ const BODY_PREVIEW_MAX = 4000;
 
 const usage = `
 Usage (LECTURE SEULE — autorisation propriétaire requise):
-  OZON_CLIENT_ID=... OZON_API_KEY=... node scripts/ozon-verify.mjs --yes [--code OZE...]
+  OZON_CLIENT_ID=... OZON_API_KEY=... node scripts/ozon-verify.mjs --live --yes [--code OZE...]
 
 Options:
+  --live       Garde explicite : confirme qu'il s'agit d'appels réseau réels.
   --yes        Confirmation explicite : effectue réellement les appels réseau.
   --code CODE  Code de suivi réel (colis test autorisé) : ajoute tracking + parcel-info.
 `.trim();
@@ -60,6 +61,11 @@ async function main() {
   if (args.includes("--help") || args.includes("-h")) {
     console.log(usage);
     return;
+  }
+  if (!args.includes("--live")) {
+    console.error("ATTENTION : ce script effectue de VRAIS appels réseau vers l'API Ozon (lecture seule).");
+    console.error("Refusé : relancez avec --live (et --yes) après autorisation explicite du propriétaire.");
+    process.exit(1);
   }
   if (!args.includes("--yes")) {
     console.error("Refusé : ce script effectue de vrais appels Ozon. Relancez avec --yes après autorisation du propriétaire.");

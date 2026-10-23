@@ -16,7 +16,7 @@ import { CopyButton } from "@/components/crm/copy-button";
 import { BlOperationCard } from "@/components/crm/bl-operation-card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 import { formatMad } from "@/lib/pricing";
 import { explainWithAssistant, useAssistantSelection } from "@/stores/assistant-context";
 import type {

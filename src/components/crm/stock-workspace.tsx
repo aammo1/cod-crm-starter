@@ -2,7 +2,7 @@
 
 import { BoxesIcon, HistoryIcon, SlidersHorizontalIcon } from "lucide-react";
 import { Tabs as TabsPrimitive } from "radix-ui";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 
 import {
   BalancesTable,
