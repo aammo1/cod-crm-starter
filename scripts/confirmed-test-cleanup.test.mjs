@@ -25,6 +25,9 @@ function fixture() {
   const now = new Date().toISOString();
   genericProduct(db, prefix, 100, [[v, []]]);
   openStock(v, 100, "test");
+  // The cleanup guard rejects any count at or after the first order movement. openStock stamps the
+  // wall clock, so it can share a millisecond with the reservation; pin it strictly earlier.
+  db.prepare("UPDATE stock_movements SET created_at = '2000-01-01T00:00:00.000Z' WHERE variant_id = ? AND kind = 'opening'").run(v);
   for (const [index, id] of [...ids, other].entries()) {
     const quantity = index === 0 ? 2 : 1;
     db.prepare(`INSERT INTO orders (id, customer_name, customer_phone, items_json, upsell_status,
