@@ -118,7 +118,7 @@ l’application source ou skill global n’a été modifié.
 
 ## Résultats PageSpeed Insights (mobile)
 
-À remplir par le propriétaire après déploiement derrière Cloudflare (cible : LCP
+À remplir par le propriétaire après déploiement (avec ou sans Cloudflare) (cible : LCP
 mobile < 2,5 s). Mesurer `/`, un `/produit/<slug>` et un `/l/<slug>` ; le budget JS
 automatique (`npm run perf-budget`) est décrit dans [les opérations](operations.md#cache--performance).
 

@@ -2,11 +2,11 @@
 
 Une niche = une copie du template = une application (boutique + CRM), une base
 SQLite, un déploiement et des secrets propres. Ce guide va du dépôt vide à une
-boutique vérifiée derrière Cloudflare. Les identifiants techniques restent en anglais.
+boutique vérifiée et en ligne. Les identifiants techniques restent en anglais.
 
 ## 1. Prérequis
 
-- Node.js 22+, un compte GitHub, un accès Coolify (VPS), un compte Cloudflare.
+- Node.js 22+, un compte GitHub, un accès Coolify (ou tout hôte Docker) et un domaine.
 - Le nom de domaine, le logo (PNG/JPG/SVG/WebP), la ville, le numéro WhatsApp.
 - Facultatif au départ : identifiants Meta (Pixel ID + token) et TikTok (pixel code +
   token), accès Ozon Express (`OZON_CLIENT_ID`, `OZON_API_KEY`).
@@ -91,13 +91,14 @@ conserve tant qu’il ne la change pas.
    production : `node scripts/create-user.mjs <email> '<mot-de-passe>' '<nom>' admin`
    dans le conteneur.
 
-## 9. Cloudflare
+### Optionnel : Cloudflare
 
-Voir [`docs/operations.md#cloudflare`](operations.md#cloudflare) : proxy orange, SSL
-Full (strict), règles de cache. Laisser `SECURITY_TRUSTED_IP_HEADER` vide, sauf
-chaîne de proxys garantissant l’IP visiteur dans `x-real-ip`/`x-forwarded-for`
-(`CF-Connecting-IP` n’est pas supporté) ; sinon limites par IP et CAPI voient l’IP
-du proxy/bord.
+Non requis : Coolify + domaine + cache ISR de l’application suffisent. Si souhaité :
+proxy orange, SSL Full (strict), ne jamais cacher `/crm` `/admin` `/login` `/api/*`.
+Laisser `SECURITY_TRUSTED_IP_HEADER` vide (seuls `x-real-ip`/`x-forwarded-for` sont
+acceptés). Détails : [operations](operations.md#optionnel--cloudflare).
+
+## 9. Notes et limites connues
 
 > **Budget JS** : marge faible (≈ 115,5 KiB sur `/produit/[slug]`, ≈ 117,5 KiB sur
 > `/l/[slug]`, limite 120 KiB = 122 880 octets). Après tout ajout de code client,
@@ -130,3 +131,13 @@ du proxy/bord.
 
 Les copies ne reçoivent aucune mise à jour automatique : voir
 [`docs/template-upgrades.md`](template-upgrades.md).
+
+## 12. Checklist de mise en ligne
+
+- [ ] Volume persistant monté sur `/app/data` (Coolify) : voir l’étape 8.
+- [ ] Variables : `AUTH_SECRET` stable, `SECURITY_ALLOWED_ORIGINS` = origine exacte `https://`, `DELIVERY_PROVIDER=ozon` + `OZON_CLIENT_ID`/`OZON_API_KEY`, tokens Meta/TikTok facultatifs.
+- [ ] Mot de passe administrateur vérifié ou changé (`scripts/create-user.mjs`, étape 8).
+- [ ] Si pixels configurés : noms d’événements et événements de test confirmés dans les Events Managers Meta/TikTok.
+- [ ] Une vraie commande de test passée, visible dans `/crm/orders` (étape 10).
+- [ ] PageSpeed mobile sur `/`, un produit et une landing, noté dans [release-verification](release-verification.md).
+- [ ] Facultatif : Cloudflare (voir l’encadré de l’étape 8).

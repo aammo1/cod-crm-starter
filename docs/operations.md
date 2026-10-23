@@ -192,6 +192,11 @@ ne certifie pas le workflow d’expédition. Sa sortie brute peut contenir des d
 client/provider : la relire et la caviarder avant tout partage. Ne pas exposer les
 URLs `/customers/<id>/<key>/...` dans logs, tickets ou captures.
 
+Les statuts de suivi Ozon ne sont volontairement **pas** mappés : `STATUS_MAP`
+(`src/lib/shipping/status-map.ts`) est vide, donc tout statut s’affiche « inconnu » et
+rien ne modifie le stock automatiquement, jusqu’à capture de statuts réels selon
+`src/lib/shipping/POLICY.md`.
+
 Les mappings inconnus/non vérifiés restent tels quels ; ils ne doivent jamais
 déplacer le stock automatiquement. Le worker seul crée les colis ; le poller seul
 lit le suivi opérationnel. BL/handoff exigent une action explicite, une claim
@@ -212,55 +217,39 @@ Coordonner la rotation de clé storefront avec son serveur ; aucune double clé
 automatique. Voir [intégration](storefront-integration.md) pour le cookie exemple
 et [mises à niveau](template-upgrades.md) pour migrations/rollback.
 
-## Cloudflare
-
-Le storefront et le CRM partagent le même domaine. Cloudflare sert de cache de bord
-pour les pages publiques et de proxy pour tout le reste. À configurer par le
-propriétaire (action manuelle, non faite par le code).
-
-- **DNS** : enregistrement proxifié (nuage orange). **SSL/TLS : Full (strict)**, avec
-  le certificat Let’s Encrypt que Coolify installe sur l’origine.
-- **Cache Rules**, dans cet ordre :
-  1. **Bypass cache** : chemin commençant par `/crm`, `/admin`, `/login`, `/api/`
-     (sauf `/api/media/` et `/api/store/cross-sells`, voir règles 2 et 4) ou
-     `/merci` ; **ou** cookie contenant `authjs.session-token`.
-  2. **Eligible for cache, respect origin** : `/_next/static/*`, `/_next/image*`,
-     `/api/media/*`, `/brand/*`, `/images/*` (l’origine envoie déjà un
-     `Cache-Control` long, immutable pour `/brand` et `/images`).
-  3. **Eligible for cache, Edge TTL 60 s, Browser TTL « respect origin »** : HTML de
-     `/`, `/boutique*`, `/produit/*`, `/l/*`, `/a-propos`, `/contact`,
-     `/livraison-retours`, `/cgv`, `/confidentialite`. Compromis : après une
-     modification dans l’admin, le bord peut retarder d’au plus 60 s ; c’est
-     acceptable car la confirmation reste la barrière de stock. Après un gros
-     changement de catalogue, purger depuis le tableau de bord Cloudflare.
-  4. `/api/store/cross-sells` : respect origin (`s-maxage=60`).
-- Activer **Brotli** et **HTTP/3**. **Ne pas** activer Rocket Loader (il casse le
-  chargement différé des pixels). Auto Minify est inutile.
-- **IP client** : `SECURITY_TRUSTED_IP_HEADER` n’accepte que `x-real-ip` ou
-  `x-forwarded-for` (toute autre valeur, dont `CF-Connecting-IP`, est ignorée sans
-  erreur : aucune IP de confiance). Pour `x-forwarded-for`, le code lit le **dernier**
-  saut. Derrière Cloudflare puis Traefik/Coolify, ce dernier saut peut être une IP de
-  bord Cloudflare ou du proxy, pas le visiteur. Recommandation sûre : **laisser vide**,
-  sauf si votre chaîne de proxys (accès direct à l’origine fermé, pare-feu limité aux
-  plages Cloudflare) écrase `x-real-ip` ou garantit un dernier saut `x-forwarded-for`
-  égal à l’IP du visiteur. Limite connue : tant que ce n’est pas le cas, les limites
-  de débit par IP et l’IP envoyée à la CAPI Meta/TikTok voient l’IP du proxy/bord, ou
-  aucune IP si la variable est vide ; les budgets globaux/compte/téléphone restent
-  actifs.
-- `CRM_PUBLIC_URL` et `SECURITY_ALLOWED_ORIGINS` doivent utiliser le domaine public
-  en `https://`.
-
-### Coolify
+## Coolify (voie par défaut)
 
 Ressource **Dockerfile** depuis le dépôt GitHub de la niche, port 3000, **une seule
 réplique** (SQLite) avec arrêt de l’ancien conteneur avant remplacement. Volume
 persistant monté sur `/app/data` : il contient `crm.db`, `uploads`, `backups` **et le
 cache d’images** `/app/data/image-cache` (lien depuis `/app/.next/cache/images`).
-Variables : coller `.env.production.example` (voir [new-niche](new-niche.md)). Health
+Domaine pointé vers le VPS, HTTPS géré par Coolify ; aucun CDN requis : l’ISR de l’application (voir « Cache & performance ») suffit. Variables : coller `.env.production.example` (voir [new-niche](new-niche.md)). Health
 check : `/api/health`. **`PORT` doit correspondre au port réellement écouté** (3000
 dans l’image) : le préchauffage au démarrage appelle `http://127.0.0.1:${PORT ?? 3000}`.
 Un `PORT` différent du port d’écoute laisse `/` et `/boutique` vides jusqu’à la
 revalidation de 300 s.
+
+## Optionnel : Cloudflare
+
+Facultatif, jamais requis : la boutique est déjà rapide sans CDN. À configurer par le
+propriétaire (action manuelle) seulement si un cache de bord est souhaité.
+
+- **DNS** proxifié (nuage orange) ; **SSL/TLS : Full (strict)** avec le certificat
+  Let’s Encrypt de l’origine.
+- **Ne jamais mettre en cache** `/crm`, `/admin`, `/login`, `/api/*` (sauf
+  `/api/media/*` et `/api/store/cross-sells`) ni `/merci`, ni avec le cookie
+  `authjs.session-token`.
+- **Respecter le `Cache-Control` de l’origine** : `/_next/static/*` (immutable),
+  `/_next/image*`, `/api/media/*`, `/brand/*` (immutable), `/images/*`. Pages publiques
+  (`/`, `/boutique*`, `/produit/*`, `/l/*`, pages de contenu) : Edge TTL 60 s au plus ;
+  après un gros changement de catalogue, purger depuis Cloudflare.
+- Brotli et HTTP/3 : oui. Rocket Loader : **non** (casse le chargement différé des pixels).
+- **IP client** : `SECURITY_TRUSTED_IP_HEADER` n’accepte que `x-real-ip` ou
+  `x-forwarded-for` (dernier saut ; toute autre valeur, dont `CF-Connecting-IP`, est
+  ignorée : aucune IP de confiance). **Laisser vide** sauf si la chaîne de proxys
+  fournit l’IP réelle du visiteur. Sinon les limites par IP et la CAPI Meta/TikTok
+  voient l’IP du proxy/bord (ou aucune) ; les budgets globaux/compte/téléphone restent
+  actifs.
 
 ## Cache & performance
 
@@ -286,7 +275,7 @@ revalidation de 300 s.
   for p in / /boutique /produit/<slug> /l/<slug>; do
     curl -sI "https://votre-domaine$p" | grep -i '^x-nextjs-cache'
   done
-  # Côté Cloudflare : curl -sI ... | grep -i '^cf-cache-status'
+  # Si Cloudflare est utilisé : curl -sI ... | grep -i '^cf-cache-status'
   ```
 
 - **Interdit dans `src/app/(storefront)`**, car cela rend la route dynamique :
@@ -326,4 +315,4 @@ revalidation de 300 s.
 - `/merci` affiche les totaux de ligne sans remise avec le total serveur pour les
   commandes en pack : pas encore de ligne de remise ni de livraison.
 - Sans IP client fiable (voir « IP client »), les limites par IP et la CAPI voient
-  l’IP du proxy/bord Cloudflare.
+  l’IP du proxy/bord.

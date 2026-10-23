@@ -18,7 +18,7 @@ Un storefront externe reste possible via l’API v1 (voir plus bas).
 4. `npm run dev`
 5. Ajouter les produits sur `/admin`.
 
-Guide complet, du dépôt au déploiement Coolify/Cloudflare : [`docs/new-niche.md`](docs/new-niche.md).
+Guide complet, du dépôt au déploiement Coolify (Cloudflare facultatif) : [`docs/new-niche.md`](docs/new-niche.md).
 
 ## Une installation par boutique
 
