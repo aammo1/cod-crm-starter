@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { Toaster } from "@/components/ui/sonner";
-import { getStoreSettings } from "@/lib/services/store-settings";
+import { storeConfig, htmlDir } from "@/config";
 import "./globals.css";
 
 const playfair = localFont({
@@ -12,8 +12,6 @@ const playfair = localFont({
   variable: "--font-playfair",
   fallback: ["Georgia", "Times New Roman", "serif"],
   display: "swap",
-  // Let styles request display faces where used instead of preloading both
-  // normal and italic ahead of the first screen's CSS and product image.
   preload: false,
 });
 
@@ -25,24 +23,67 @@ const inter = localFont({
   display: "swap",
 });
 
-export const dynamic = "force-dynamic";
+const interNoPreload = localFont({
+  src: "./fonts/inter-latin-var.woff2",
+  weight: "100 900",
+  variable: "--font-inter",
+  fallback: ["Arial", "Helvetica", "sans-serif"],
+  display: "swap",
+  preload: false,
+});
 
-export function generateMetadata(): Metadata {
-  const { storeName } = getStoreSettings();
-  return {
-    title: {
-      default: `${storeName} — Gestion des commandes`,
-      template: `%s | ${storeName}`,
-    },
-    description: "Gestion des commandes, du stock et des livraisons au Maroc.",
-    robots: { index: false, follow: false },
-  };
-}
+const cairoPreload = localFont({
+  src: "./fonts/cairo-arabic-var.woff2",
+  weight: "200 1000",
+  variable: "--font-cairo",
+  fallback: ["system-ui", "Arial", "sans-serif"],
+  display: "swap",
+});
+
+const cairoNoPreload = localFont({
+  src: "./fonts/cairo-arabic-var.woff2",
+  weight: "200 1000",
+  variable: "--font-cairo",
+  fallback: ["system-ui", "Arial", "sans-serif"],
+  display: "swap",
+  preload: false,
+});
+
+const cairo = storeConfig.locale === "ar" ? cairoPreload : cairoNoPreload;
+
+const interFont = storeConfig.brand.fonts.body === "inter" ? inter : interNoPreload;
+
+const { brand, seo } = storeConfig;
+
+export const metadata: Metadata = {
+  title: { default: seo.title, template: `%s | ${storeConfig.name}` },
+  description: seo.description,
+  metadataBase: new URL(storeConfig.domain),
+  openGraph: {
+    title: seo.title,
+    description: seo.description,
+    siteName: storeConfig.name,
+    ...(seo.ogImage ? { images: [{ url: seo.ogImage }] } : {}),
+  },
+  ...(brand.icon ? { icons: { icon: brand.icon } } : {}),
+};
+
+const RADIUS = { none: "0px", sm: "0.25rem", md: "0.5rem", lg: "0.875rem", full: "9999px" } as const;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const c = brand.colors;
+  const radius = RADIUS[brand.radius];
+  const themeCss = `:root{--store-primary:${c.primary};--store-primary-fg:${c.primaryForeground};--store-accent:${c.accent};--store-bg:${c.background};--store-fg:${c.foreground};--store-muted:${c.muted};--store-border:${c.border};--store-radius:${radius}}`;
   return (
-    <html lang="fr" suppressHydrationWarning>
-      <body className={`${playfair.variable} ${inter.variable} font-sans antialiased`}>
+    <html lang={storeConfig.locale} dir={htmlDir} suppressHydrationWarning>
+      <head>
+        <style>{themeCss}</style>
+      </head>
+      <body
+        className={`${playfair.variable} ${interFont.variable} ${cairo.variable} font-sans antialiased`}
+        data-heading-font={brand.fonts.heading}
+        data-body-font={brand.fonts.body}
+      >
         {children}
         <Toaster richColors position="top-center" />
       </body>

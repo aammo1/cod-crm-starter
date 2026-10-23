@@ -32,11 +32,12 @@ COPY --from=builder /app/src/lib/services/inventory-test-cleanup.mjs ./src/lib/s
 # Include the full package for CLI scripts as well as traced server imports.
 # better-sqlite3 13 ships Node >=22 musl prebuilds (no compiler/install script).
 COPY --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
-RUN mkdir -p /app/data/uploads /app/.next/cache \
+RUN mkdir -p /app/data/uploads /app/data/image-cache /app/.next/cache \
+    && ln -s /app/data/image-cache /app/.next/cache/images \
     && chown -R nextjs:nodejs /app/data /app/.next/cache
 USER nextjs
 VOLUME /app/data
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
-CMD ["node", "server.js"]
+CMD ["sh", "-c", "mkdir -p /app/data/image-cache && exec node server.js"]

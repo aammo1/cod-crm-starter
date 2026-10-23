@@ -61,7 +61,7 @@ test("production mock startup creates an empty isolated CRM and protects operati
     assert.equal(health.workers.tracking.enabled, true);
     assert.equal(health.workers.meta.enabled, false);
     assert.deepEqual(health.queues, { submissionsQueued: 0, submissionsNeedsReview: 0, submissionsFailed: 0 });
-    for (const route of ["/", "/crm", "/crm/equipe", "/crm/orders/new", "/admin"]) {
+    for (const route of ["/crm", "/crm/equipe", "/crm/orders/new", "/admin"]) {
       const response = await fetch(`${origin}${route}`, { redirect: "manual" });
       assert.ok([302, 303, 307, 308].includes(response.status), `${route}: ${response.status}`);
       assert.equal(new URL(response.headers.get("location"), origin).pathname, "/login");

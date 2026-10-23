@@ -1,3 +1,4 @@
+// new-store:template
 import type { StoreConfigInput } from "@/config/schema";
 
 export default {

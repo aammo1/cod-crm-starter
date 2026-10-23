@@ -77,11 +77,11 @@ graph TD
 - [x] [task-05-tiktok-events-backend](./tasks/task-05-tiktok-events-backend.md): TikTok Events API outbox and worker
 
 ### Wave 2
-- [ ] [task-06-app-shell-and-build](./tasks/task-06-app-shell-and-build.md): Root/admin layout split, theme tokens, next.config, Dockerfile
-- [ ] [task-07-browser-tracking](./tasks/task-07-browser-tracking.md): Lazy Meta and TikTok pixels plus deduplicated relay
-- [ ] [task-08-storefront-checkout-api](./tasks/task-08-storefront-checkout-api.md): Same-origin checkout and upsell routes with attribution
-- [ ] [task-09-admin-packs-editor](./tasks/task-09-admin-packs-editor.md): Pack and landing editor in /admin
-- [ ] [task-10-new-store-cli](./tasks/task-10-new-store-cli.md): `npm run new-store` wizard
+- [x] [task-06-app-shell-and-build](./tasks/task-06-app-shell-and-build.md): Root/admin layout split, theme tokens, next.config, Dockerfile
+- [x] [task-07-browser-tracking](./tasks/task-07-browser-tracking.md): Lazy Meta and TikTok pixels plus deduplicated relay
+- [x] [task-08-storefront-checkout-api](./tasks/task-08-storefront-checkout-api.md): Same-origin checkout and upsell routes with attribution
+- [x] [task-09-admin-packs-editor](./tasks/task-09-admin-packs-editor.md): Pack and landing editor in /admin
+- [x] [task-10-new-store-cli](./tasks/task-10-new-store-cli.md): `npm run new-store` wizard
 
 ### Wave 3
 - [ ] [task-11-funnel](./tasks/task-11-funnel.md): Cart store, lazy drawer/checkout/upsell, merci

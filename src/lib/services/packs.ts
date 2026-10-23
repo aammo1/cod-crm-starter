@@ -65,3 +65,13 @@ export function setLandingEnabled(productId: string, enabled: boolean): void {
     .run(enabled ? 1 : 0, new Date().toISOString(), productId);
   if (result.changes === 0) throw new InventoryValidationError("Produit introuvable.");
 }
+
+/** Saves packs and the landing flag atomically (better-sqlite3 nests transactions via savepoints). */
+export function savePacksAndLanding(productId: string, input: { packs: unknown; landingEnabled: boolean }): { packs: ProductPack[]; landingEnabled: boolean } {
+  const db = getDb();
+  return db.transaction(() => {
+    const packs = replacePacks(productId, input.packs);
+    setLandingEnabled(productId, input.landingEnabled);
+    return { packs, landingEnabled: input.landingEnabled };
+  }).immediate();
+}

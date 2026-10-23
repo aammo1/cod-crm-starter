@@ -23,7 +23,8 @@
     "test:assistant": "node --test scripts/assistant-workflow.test.mjs",
     "test:catalog-agent": "node --test scripts/catalog-agent.test.mjs",
     "test:crm": "node --test scripts/order-workflow.test.mjs scripts/order-edits.test.mjs scripts/order-lifecycle.test.mjs scripts/confirmed-test-cleanup.test.mjs scripts/bl-workflow.test.mjs scripts/returns-workflow.test.mjs scripts/tracking-workflow.test.mjs scripts/mock-flow.test.mjs scripts/submission-resolution.test.mjs scripts/dashboard-accuracy.test.mjs scripts/inventory-workflow.test.mjs scripts/manual-order.test.mjs",
-    "backup": "node scripts/backup-db.mjs"
+    "backup": "node scripts/backup-db.mjs",
+    "new-store": "node scripts/new-store.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.70",

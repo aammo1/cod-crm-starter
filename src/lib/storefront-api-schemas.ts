@@ -20,6 +20,8 @@ export const storefrontAttributionSchema = z.object({
   }),
   fbp: z.string().regex(/^fb\.\d+\.\d+\.[\w-]+$/).max(256).optional(),
   fbc: z.string().regex(/^fb\.\d+\.\d+\.[\w-]+$/).max(512).optional(),
+  ttp: z.string().max(256).regex(/^[\w.-]+$/).optional(),
+  ttclid: z.string().max(512).regex(/^[\w.-]+$/).optional(),
   clientIpAddress: z.string().max(45).refine((value) => !!isIP(value)).optional(),
   clientUserAgent: z.string().max(1024).optional(),
 }).strict();

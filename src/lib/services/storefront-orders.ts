@@ -12,6 +12,7 @@ import { normalizeMaPhone } from "@/lib/phone";
 import { shippingFor, upsellPriceFor } from "@/lib/pricing";
 import { DEFAULT_STORE_SETTINGS, storeSettingsSchema } from "@/lib/store-settings-schema";
 import { metaEnabled } from "@/lib/services/meta";
+import { tiktokEnabled, tiktokContextFromAttribution, recordTikTokPurchaseContext } from "@/lib/services/tiktok";
 import { orderRulesKey } from "@/lib/services/order-lines";
 import { createOrderNonce, deriveOrderToken, orderTokenVerifier, verifyOrderToken } from "@/lib/order-token";
 import { StorefrontOrderError, findReceipt, writeReceipt, validateRequestKey, immediateOrderTransaction } from "@/lib/services/request-receipts";
@@ -39,6 +40,8 @@ const attributionSchema = z.object({
   sourceUrl: z.string().url().max(2048).refine((s) => /^https?:\/\//.test(s)),
   fbp: z.string().regex(/^fb\.\d+\.\d+\.[\w-]+$/).max(256).optional(),
   fbc: z.string().regex(/^fb\.\d+\.\d+\.[\w-]+$/).max(512).optional(),
+  ttp: z.string().max(256).regex(/^[\w.-]+$/).optional(),
+  ttclid: z.string().max(512).regex(/^[\w.-]+$/).optional(),
   clientIpAddress: z.string().max(45).refine((s) => !!isIP(s)).optional(),
   clientUserAgent: z.string().max(1024).optional(),
 }).strict();
@@ -72,6 +75,8 @@ export function canonicalCheckout(input: unknown) {
     })(),
     ...(value.meta.fbp ? { fbp: value.meta.fbp } : {}),
     ...(value.meta.fbc ? { fbc: value.meta.fbc } : {}),
+    ...(value.meta.ttp ? { ttp: value.meta.ttp } : {}),
+    ...(value.meta.ttclid ? { ttclid: value.meta.ttclid } : {}),
     ...(value.meta.clientIpAddress ? { clientIpAddress: value.meta.clientIpAddress } : {}),
     ...(value.meta.clientUserAgent ? { clientUserAgent: value.meta.clientUserAgent } : {}),
   } : undefined;
@@ -211,6 +216,15 @@ export function createStorefrontOrderService(deps: StorefrontOrderDependencies) 
                 total: amounts.total, items, upsellItems: [], customerName: request.customer.name,
                 customerPhone: request.customer.phone, eventTime: Math.floor(now / 1000),
               }));
+        }
+        if (request.meta && tiktokEnabled()) {
+          const m = request.meta;
+          if (!metaEnabled()) {
+            const duplicate = db.prepare("SELECT 1 FROM tiktok_purchases WHERE event_id = ?").get(m.eventId);
+            if (duplicate) throw new StorefrontOrderError(409, "META_EVENT_CONFLICT", "Cet événement est déjà associé à une commande.");
+          }
+          recordTikTokPurchaseContext(db, id, tiktokContextFromAttribution(m, m.clientIpAddress, m.clientUserAgent),
+            offer ? Date.parse(offer.expiresAt) : now);
         }
         const publicOffer = offer ? { offerId: offer.offerId, productId: offer.productId,
           name: offer.name, image: offer.image, originalPrice: offer.originalPrice,
