@@ -84,7 +84,7 @@ graph TD
 - [x] [task-10-new-store-cli](./tasks/task-10-new-store-cli.md): `npm run new-store` wizard
 
 ### Wave 3
-- [ ] [task-11-funnel](./tasks/task-11-funnel.md): Cart store, lazy drawer/checkout/upsell, merci
+- [x] [task-11-funnel](./tasks/task-11-funnel.md): Cart store, lazy drawer/checkout/upsell, merci
 
 ### Wave 4
 - [ ] [task-12-storefront-shell](./tasks/task-12-storefront-shell.md): Storefront layout, header, footer, static pages, sitemap
