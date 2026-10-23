@@ -87,7 +87,7 @@ graph TD
 - [x] [task-11-funnel](./tasks/task-11-funnel.md): Cart store, lazy drawer/checkout/upsell, merci
 
 ### Wave 4
-- [ ] [task-12-storefront-shell](./tasks/task-12-storefront-shell.md): Storefront layout, header, footer, static pages, sitemap
+- [x] [task-12-storefront-shell](./tasks/task-12-storefront-shell.md): Storefront layout, header, footer, static pages, sitemap
 
 ### Wave 5
 - [ ] [task-13-catalog-pages](./tasks/task-13-catalog-pages.md): Home, boutique, category, product pages, custom sections
