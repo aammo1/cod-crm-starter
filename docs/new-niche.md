@@ -13,7 +13,7 @@ boutique vérifiée et en ligne. Les identifiants techniques restent en anglais.
 
 ## 2. Créer le dépôt
 
-Sur `aammo1/cod-crm-starter` : **Use this template → Create a new repository**, puis :
+Sur `aammo1/store-crm-boilerplate` : **Use this template → Create a new repository**, puis :
 
 ```sh
 git clone <votre-copie> ma-niche && cd ma-niche

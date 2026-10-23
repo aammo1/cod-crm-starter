@@ -22,7 +22,7 @@ Guide complet, du dépôt au déploiement Coolify (Cloudflare facultatif) : [`do
 
 ## Une installation par boutique
 
-Modèle public publié : [aammo1/cod-crm-starter](https://github.com/aammo1/cod-crm-starter).
+Modèle public publié : [aammo1/store-crm-boilerplate](https://github.com/aammo1/store-crm-boilerplate).
 L’option template est activée : choisir **Use this template →
 Create a new repository**, puis cloner votre copie. Chaque copie possède son propre déploiement,
 SQLite, médias, utilisateurs, stock et secrets ; elle ne reçoit aucune mise à jour

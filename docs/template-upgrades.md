@@ -4,7 +4,7 @@ Une copie créée avec **Use this template** est indépendante : dépôt, histor
 déploiement, SQLite, médias et secrets. Modifier le template ne modifie pas vos
 boutiques. Il n’y a ni mise à jour automatique, ni schéma partagé, ni remplacement
 global des fichiers d’une copie. La destination publique du template est
-`https://github.com/aammo1/cod-crm-starter` ; vérifier sa publication et choisir une
+`https://github.com/aammo1/store-crm-boilerplate` ; vérifier sa publication et choisir une
 révision/tag précis avant de planifier une mise à niveau.
 
 ## Procédure délibérée
