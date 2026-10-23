@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -11,7 +12,7 @@ import Database from "better-sqlite3";
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 test("production mock startup creates an empty isolated CRM and protects operational pages", { timeout: 60_000 }, async () => {
-  const temp = mkdtempSync("/tmp/opencode/cod-crm-bootstrap-");
+  const temp = mkdtempSync(path.join(os.tmpdir(), "cod-crm-bootstrap-"));
   const socket = net.createServer();
   await new Promise((resolve, reject) => {
     socket.once("error", reject);

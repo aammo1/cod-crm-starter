@@ -3,10 +3,20 @@
 Vérification de l’assemblage et limites constatées :
 [`docs/release-verification.md`](docs/release-verification.md).
 
-CRM **sans storefront** pour boutiques marocaines en paiement à la livraison :
-catalogue et variantes génériques, stock, commandes, équipe, confirmation,
-expéditions/BL, suivi, retours et paramètres. Interface en français, prix MAD
-entiers. Votre storefront conserve son design et appelle le CRM depuis son serveur.
+Storefront + CRM boilerplate for Moroccan COD niches : une boutique rapide pilotée
+par `store.config.ts` et le CRM dans la même application Next.js et la même base
+SQLite, une copie par niche. CRM : catalogue et variantes génériques, stock,
+commandes, équipe, confirmation, expéditions/BL, suivi, retours et paramètres.
+Interface CRM en français, prix MAD entiers ; langue du storefront `fr` ou `ar`.
+Un storefront externe reste possible via l’API v1 (voir plus bas).
+
+## Démarrage rapide d’une niche
+
+1. Utiliser le modèle (**Use this template**) puis cloner votre copie.
+2. `npm install`
+3. `npm run new-store` (assistant de nouvelle niche, ajouté par `specs/storefront-boilerplate`)
+4. `npm run dev`
+5. Ajouter les produits sur `/admin`.
 
 ## Une installation par boutique
 

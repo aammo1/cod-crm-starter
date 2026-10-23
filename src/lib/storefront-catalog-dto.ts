@@ -39,6 +39,10 @@ export function toStorefrontCatalogProduct(product: CommerceProduct, origin: str
     ...(product.materials === undefined ? {} : { materials: [...product.materials] }),
     ...(product.badge === undefined ? {} : { badge: product.badge }),
     isBestSeller: product.isBestSeller, active: product.active,
+    packs: product.packs.map(({ id, quantity, price, label, highlight }) => ({
+      id, quantity, price, ...(label === undefined ? {} : { label }), highlight,
+    })),
+    landingEnabled: product.landingEnabled,
     images: publicImages(product.images, origin),
     optionDefinitions: product.optionDefinitions.map(({ name, values }) => ({ name, values: [...values] })),
     variants: product.variants.filter((variant) => variant.active).map((variant) => ({

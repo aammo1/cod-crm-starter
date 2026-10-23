@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { browserMutationAllowed } from "@/lib/browser-mutation";
 import { readLimitedJson, RequestBodyError } from "@/lib/request-body";
@@ -40,7 +41,9 @@ export async function PUT(request: Request) {
     if (!parsed.success) {
       return json({ error: "Paramètres invalides. Vérifiez les champs et leurs limites." }, 400);
     }
-    return json({ settings: updateStoreSettings(parsed.data) });
+    const settings = updateStoreSettings(parsed.data);
+    revalidateStorefront();
+    return json({ settings });
   } catch (error) {
     return failure(error);
   }

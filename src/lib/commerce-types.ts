@@ -22,6 +22,21 @@ export interface CommerceVariant {
   available: number;
 }
 
+export interface ProductPack {
+  id: string;
+  /** 2..10; quantity 1 is always the product base price. */
+  quantity: number;
+  /** Integer MAD for the whole pack. */
+  price: number;
+  label?: string;
+  highlight: boolean;
+}
+
+/** Persisted orders.pack_snapshot_json entries. */
+export interface CommercePackApplication {
+  productId: string; packId: string; quantity: number; packPrice: number; regularPrice: number; discount: number;
+}
+
 export interface CommerceProduct {
   id: string;
   slug: string;
@@ -40,6 +55,9 @@ export interface CommerceProduct {
   upsellRef?: string;
   isBestSeller: boolean;
   active: boolean;
+  /** Active packs only, ordered by quantity. */
+  packs: ProductPack[];
+  landingEnabled: boolean;
 }
 
 export interface PublicCommerceVariant extends Omit<CommerceVariant, "available"> {
@@ -94,6 +112,8 @@ export interface CommerceTotals {
   shipping: number;
   total: number;
   currency: "MAD";
+  /** Integer MAD, > 0 only when a quantity pack applied. */
+  packDiscount?: number;
 }
 
 export interface UpsellOfferVariant {

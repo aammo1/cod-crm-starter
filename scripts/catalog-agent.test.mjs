@@ -250,7 +250,7 @@ if (child) {
     const originalLoad = Module._load;
     let revalidations = 0;
     Module._load = function (request, ...args) {
-      if (request === "next/cache") return { revalidatePath() { revalidations++; } };
+      if (request === "next/cache") return { revalidateTag() {}, revalidatePath() { revalidations++; } };
       return originalLoad.call(this, request, ...args);
     };
     let routes;

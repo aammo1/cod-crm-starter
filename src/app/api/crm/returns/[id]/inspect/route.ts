@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { AuthGuardError, requireUser } from "@/lib/auth-guards";
 import { inspectReturnSchema } from "@/lib/api-schemas";
 import { getDb } from "@/lib/db";
@@ -180,6 +181,7 @@ export async function POST(
       })
       .immediate();
 
+    revalidateStorefront();
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();

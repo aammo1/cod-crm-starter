@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { AuthGuardError, requireUser } from "@/lib/auth-guards";
 import { confirmOrderSchema } from "@/lib/api-schemas";
 import { ConfirmationError, confirmOrder } from "@/lib/services/confirmation";
@@ -29,6 +30,7 @@ export async function POST(
     }
 
     const result = confirmOrder(id, parsed.data, user);
+    revalidateStorefront();
     return NextResponse.json(
       { submissionId: result.submissionId },
       { status: result.created ? 201 : 200 },

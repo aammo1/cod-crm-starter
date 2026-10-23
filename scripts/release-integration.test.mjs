@@ -124,7 +124,7 @@ test("fresh host standalone: generic HTTP COD journey, durable replay and archiv
       assert.equal((await storefront(`catalog/${product.slug}`)).body.product.variants[0].id, product.variants[0].id);
     }
     const catalog = await storefront("catalog");
-    assert.equal(catalog.body.settings.storeName, "COD CRM");
+    assert.equal(catalog.body.settings.storeName, "Ma Boutique");
     assert.equal(catalog.body.settings.shippingFeeMad, 29);
     assert.equal(catalog.body.settings.freeShippingThresholdMad, 400);
     assert.equal(typeof catalog.body.products[0].variants[0].available, "boolean");

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { AuthGuardError, requireUser } from "@/lib/auth-guards";
 import { orderLineUpdateSchema } from "@/lib/api-schemas";
 import { ConfirmationError, updateOrderLine } from "@/lib/services/confirmation";
@@ -29,6 +30,7 @@ export async function POST(
     }
 
     const item = updateOrderLine(id, parsed.data, user);
+    revalidateStorefront();
     return NextResponse.json({
       ok: true,
       item: { lineIndex: parsed.data.lineIndex, variantId: item.variant_id,

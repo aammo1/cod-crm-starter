@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { archiveProduct } from "@/lib/services/catalog";
@@ -14,7 +14,7 @@ export async function POST(
     await requireAdmin();
     const { id } = await params;
     archiveProduct(id);
-    revalidatePath("/", "layout");
+    revalidateStorefront();
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();

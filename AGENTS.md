@@ -1,7 +1,10 @@
 # AGENTS.md — COD CRM Starter
 
-CRM-only, single-store Moroccan COD template, French UI and integer MAD prices.
-Spec: `specs/cod-crm-starter/requirements.md`. Work only in this repository;
+Single-store Moroccan COD template: storefront + CRM in one Next.js app and one
+SQLite DB, one copy per niche. Storefront locale is `fr` or `ar` (RTL) from
+`store.config.ts`; CRM UI is always French; prices integer MAD.
+Specs: `specs/cod-crm-starter/requirements.md`,
+`specs/storefront-boilerplate/requirements.md`. Work only in this repository;
 the extraction source and its env/data are read-only and must never be loaded.
 Each generated store owns its repo, deployment, SQLite, media, users, stock and
 secrets. No shared multi-tenant state or automatic template updates.
@@ -26,6 +29,9 @@ secrets. No shared multi-tenant state or automatic template updates.
 - `node scripts/create-user.mjs <email> <password> <name> <admin|agent>` — explicit
   create/update, 12–128 character password; existing email reactivates and bumps
   session version. Run from repo root, scripts do not load `.env.local`.
+- `npm run new-store` — new-niche wizard (added by specs/storefront-boilerplate)
+- `npm run perf-budget` — storefront first-load JS budget, run after build
+  (added by specs/storefront-boilerplate)
 - `npm run backup` — online SQLite snapshot; in image use `node scripts/backup-db.mjs`
 
 ## Ownership and integration boundaries
@@ -46,15 +52,38 @@ secrets. No shared multi-tenant state or automatic template updates.
 - `integrations/storefront-client.ts`: independent copyable server-only client.
 - `examples/nextjs/`: copyable public proxy with encrypted order-bound cookie,
   stable session-scoped keys, strict origin/body validation and bounded limiter.
+- `store.config.ts` (repo root) + `src/config/`: the single source of per-niche
+  branding, copy, locale, nav, pixel IDs and custom-section mapping. Validated with
+  zod at import, so an invalid config fails the build. `src/config/i18n.ts` holds
+  the fixed UI strings for fr and ar.
+- `src/app/(storefront)/`: public pages. They read data **only** via
+  `src/lib/storefront/data.ts` (cached loaders tagged `storefront`). They never call
+  `cookies()`, `headers()`, `auth()` or `connection()`, and never import `@/lib/db`
+  or services directly.
+- `src/lib/storefront/revalidate.ts`: `revalidateStorefront()` must be called by
+  every route that changes catalog, prices, packs, settings or availability (admin
+  products, stock, catalog-agent, settings, confirm, cancel, returns inspect, order
+  edit).
+- `src/app/api/store/`: same-origin browser checkout and upsell. These routes call
+  the order service in-process and are protected by origin checks, budgets and an
+  httpOnly order cookie.
+- `src/components/storefront/`: storefront UI. Funnel overlays are loaded with
+  `next/dynamic` only when they are opened.
+- `src/custom/`: hand-made per-product marketing sections registered in
+  `src/custom/index.ts` and mapped by slug in `store.config.ts`.
+- `scripts/new-store.mjs`: the new-niche wizard.
 - `docs/storefront-integration.md`: definitive API/client/agent contract.
   `docs/operations.md`: deployment/backup/live onboarding.
   `docs/template-upgrades.md`: deliberate per-copy upgrades.
 
-The CRM owns catalog IDs/SKUs, variants, images, prices, shipping calculations,
-offers, stock and orders. The external storefront owns presentation/cart/customer
-interaction/consent and calls v1 from its server. Never import CRM database/services
-into a storefront. Never trust a client price or send one in checkout. Keep secrets
-in runtime server env, never `NEXT_PUBLIC_*`, URLs, logs, browser JSON or props.
+The CRM owns catalog IDs/SKUs, variants, images, prices, packs, shipping, offers,
+stock and orders. The in-repo storefront owns presentation, cart and customer
+interaction. It reads the catalog only through the cached storefront loaders and
+places orders only through `/api/store/*`. External storefronts (optional) still use
+v1 from their server and must never import CRM DB/services. Never trust a client
+price or send one in checkout. Keep secrets in runtime server env, never
+`NEXT_PUBLIC_*`. Pixel IDs are public and live in `store.config.ts`; access tokens
+are env-only. Never put secrets in URLs, logs, browser JSON or props.
 
 ## Invariants
 
@@ -68,15 +97,27 @@ in runtime server env, never `NEXT_PUBLIC_*`, URLs, logs, browser JSON or props.
   parcel submission. Contact logs never reopen confirmed/cancelled orders.
 - Variant IDs/SKUs and inventory/history references survive edits/archive/restore.
   Historical lines retain name/options/price snapshots. Never recreate IDs on edit.
-- Discount pricing belongs only to upsell; use stored rules/offer/deadline. Never
-  extend a deadline on replay. Agent confirmation may close the offer early.
+- Discount pricing comes only from (a) the upsell (stored rules/offer/deadline) and
+  (b) product quantity packs, which the server applies automatically from the
+  persisted pack table and snapshots onto the order. Never accept a pack price or
+  discount from the client. Never extend a deadline on replay. Agent confirmation
+  may close the offer early.
 - Parcel creation only by submission worker, tracking only by poller. BL/handoff
   are explicit agent actions with durable claims. Uncertain BL steps require
   recorded portal reconciliation; no blind retry or automatic lease takeover.
 - Redact all Ozon credential-bearing URLs. Unknown/unverified tracking statuses
   never automatically change stock; do not invent verified mappings.
 - Preserve admin/agent permissions, team controls and mobile CRM usability.
-- All visible copy French, currency integer MAD, timezone Africa/Casablanca.
+- CRM/admin copy French. Storefront copy comes from `store.config.ts` and
+  `src/config/i18n.ts` in the configured locale (fr or ar). Currency integer MAD,
+  timezone Africa/Casablanca.
+- The build never opens SQLite. Storefront loaders return empty data during
+  `NEXT_PHASE=phase-production-build`, and a boot warm-up revalidates after start.
+- Storefront client bundles must not include zod, libphonenumber-js, DB or service
+  modules. First-load JS budget is ≤ 120 KB gzipped on product and landing pages
+  (`scripts/perf-budget.mjs`).
+- Reference code may be read from the zehri and hellobaby repos for porting; never
+  read their env/data/DB and never modify them.
 - Never reintroduce Google Sheets or webhook automation.
 - No boot-time product/user/order seeds. Local paths `data/crm.db`, `data/uploads`;
   containers persist `/app/data`, nonroot UID/GID 1001. One process owner per DB.
@@ -94,6 +135,8 @@ in runtime server env, never `NEXT_PUBLIC_*`, URLs, logs, browser JSON or props.
   before distributed/serverless storefront deployment.
 
 ## Ready prompt for a storefront coding agent
+
+Only for an optional external storefront; the default is the in-repo storefront.
 
 > Read `docs/storefront-integration.md`, `integrations/storefront-client.ts` and
 > `examples/nextjs/README.md` in this CRM. Copy the typed server-only client and

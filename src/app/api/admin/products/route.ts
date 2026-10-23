@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { ZodError } from "zod";
 
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
@@ -30,7 +30,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
     }
     const product = createProduct(parsed, { actor: user.id });
-    revalidatePath("/", "layout");
+    revalidateStorefront();
     return NextResponse.json({ product }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();

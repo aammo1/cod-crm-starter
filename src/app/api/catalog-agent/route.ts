@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { z, ZodError } from "@/lib/validation";
 import { CatalogAgentError, requireCatalogAgent } from "@/lib/catalog-agent-auth";
 import { listProducts } from "@/lib/services/catalog";
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     const body = bodySchema.parse(await request.json().catch(() => null));
     if (body.action === "preview") return NextResponse.json(previewCatalogOperation(body.operation), { headers });
     const result = applyCatalogOperation(body.operation, body.preview);
-    revalidatePath("/", "layout");
+    revalidateStorefront();
     return NextResponse.json(result, { headers });
   } catch (error) { return failure(error); }
 }

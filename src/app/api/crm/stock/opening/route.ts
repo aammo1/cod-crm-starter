@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { stockOpeningSchema } from "@/lib/services/inventory-schemas";
 import { InventoryConflictError, InventoryValidationError, openStockItems } from "@/lib/services/inventory";
@@ -15,7 +15,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
     const items = "items" in parsed.data ? parsed.data.items : [parsed.data];
     const summary = openStockItems(items, user.id);
-    revalidatePath("/", "layout");
+    revalidateStorefront();
     return NextResponse.json({ ok: true, ...summary });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();
