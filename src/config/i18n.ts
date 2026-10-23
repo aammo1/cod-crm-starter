@@ -44,3 +44,17 @@ export function buyBoxLabels(locale: Locale): BuyBoxLabels {
   for (const key of BUY_BOX_KEYS) labels[key] = t(locale, key);
   return labels;
 }
+
+const LANDING_KEYS = [
+  "chooseOption", "packs", "bestValue", "differentOptions", "unit", "orderNow", "confirmOrder", "fullName", "phone",
+  "phonePlaceholder", "phoneInvalid", "nameRequired", "cod", "sending", "soldOut", "subtotal", "shipping",
+  "freeShipping", "total", "genericError", "retryLater", "piece", "pieces", "save",
+] as const;
+export type LandingLabels = Record<(typeof LANDING_KEYS)[number], string> & { currency: string };
+
+/** Server-side only: pre-translated strings for the landing client islands. */
+export function landingLabels(locale: Locale): LandingLabels {
+  const labels = { currency: currencyLabel(locale) } as LandingLabels;
+  for (const key of LANDING_KEYS) labels[key] = t(locale, key);
+  return labels;
+}

@@ -21,5 +21,6 @@ export const fr = {
   youMayLike: "Vous aimerez aussi", genericError: "Une erreur est survenue, réessayez.",
   retryLater: "Trop de tentatives, réessayez dans un instant.",
   viewOffer: "Voir l'offre", sizeGuide: "Guide des tailles", noProducts: "Aucun produit pour le moment.",
+  startingAt: "À partir de {price}",
   categories: "Catégories", productDescription: "Description", viewAll: "Voir tout",
 } as const;

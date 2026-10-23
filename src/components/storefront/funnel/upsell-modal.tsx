@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,6 +10,14 @@ import type { FunnelProps } from "./funnel-props";
 import { useCheckout } from "./use-checkout";
 
 const RING = 2 * Math.PI * 18;
+
+/** The CRM returns absolute media URLs; serve CRM media same-origin by path (no /_next/image remote pattern needed). */
+function mediaSrc(src: string): string {
+  try {
+    const url = new URL(src, "http://local.invalid");
+    return url.pathname.startsWith("/api/media/") ? url.pathname + url.search : src;
+  } catch { return src; }
+}
 
 export default function UpsellModal({ locale, storeSlug }: FunnelProps) {
   const router = useRouter();
@@ -92,7 +99,8 @@ export default function UpsellModal({ locale, storeSlug }: FunnelProps) {
 
         <div className="flex items-center gap-4">
           {offer.image ? (
-            <Image src={offer.image} alt={offer.name} width={96} height={96} className="size-24 shrink-0 rounded-store object-cover" />
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={mediaSrc(offer.image)} alt={offer.name} width={96} height={96} loading="lazy" decoding="async" className="size-24 shrink-0 rounded-store object-cover" />
           ) : <div className="size-24 shrink-0 rounded-store bg-store-muted" aria-hidden />}
           <div className="min-w-0 flex-1">
             <p className="font-medium">{offer.name}</p>

@@ -93,7 +93,7 @@ graph TD
 - [x] [task-13-catalog-pages](./tasks/task-13-catalog-pages.md): Home, boutique, category, product pages, custom sections
 
 ### Wave 6
-- [ ] [task-14-landing-pages](./tasks/task-14-landing-pages.md): `/l/[slug]` with packs and an inline order form
+- [x] [task-14-landing-pages](./tasks/task-14-landing-pages.md): `/l/[slug]` with packs and an inline order form
 
 ### Wave 7
 - [ ] [task-15-docs-and-perf-budget](./tasks/task-15-docs-and-perf-budget.md): New-niche guide, Cloudflare docs, perf budget script

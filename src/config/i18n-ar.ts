@@ -23,5 +23,6 @@ export const ar: Record<keyof typeof fr, string> = {
   youMayLike: "قد يعجبك أيضا", genericError: "حدث خطأ، حاول مرة أخرى.",
   retryLater: "محاولات كثيرة، حاول بعد قليل.",
   viewOffer: "شاهد العرض", sizeGuide: "دليل المقاسات", noProducts: "لا توجد منتجات حاليا.",
+  startingAt: "ابتداءً من {price}",
   categories: "الفئات", productDescription: "الوصف", viewAll: "عرض الكل",
 };
