@@ -12,10 +12,23 @@ import {
   resolveVariantForLine,
   type ReturnLineInput,
 } from "@/lib/services/inventory";
-import { getReturn } from "@/lib/services/returns";
+import { closeReturnWithoutUnits, getReturn } from "@/lib/services/returns";
+import { z } from "zod";
 import { getSubmission } from "@/lib/services/submissions";
+import { readLimitedJson, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+
+const closeReturnSchema = z.object({
+  outcome: z.enum(["closed_empty", "lost"], { message: "Résultat invalide" }),
+  reason: z
+    .string({ required_error: "Veuillez indiquer le motif." })
+    .trim()
+    .min(1, "Veuillez indiquer le motif.")
+    .max(500, "Motif trop long"),
+  lines: z.array(z.unknown()).max(0, "Aucune ligne attendue pour une clôture sans article").optional(),
+});
+const MAX_BODY_BYTES = 32 * 1024;
 
 class ReturnInspectError extends Error {
   constructor(
@@ -44,9 +57,34 @@ export async function POST(
 
     let body: unknown;
     try {
-      body = await request.json();
-    } catch {
+      body = await readLimitedJson(request, MAX_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
       return NextResponse.json({ error: "Requête invalide" }, { status: 400 });
+    }
+
+    const actor = user.name ?? user.email ?? user.id;
+
+    if (typeof body === "object" && body !== null && "outcome" in body) {
+      const close = closeReturnSchema.safeParse(body);
+      if (!close.success) {
+        return NextResponse.json({ error: close.error.issues[0]?.message ?? "Requête invalide" }, { status: 400 });
+      }
+      if (close.data.outcome === "lost" && user.role !== "admin") {
+        return NextResponse.json({ error: "Réservé aux administrateurs." }, { status: 403 });
+      }
+      try {
+        const closed = closeReturnWithoutUnits(id, close.data.outcome, close.data.reason, actor);
+        return NextResponse.json({ ok: true, outcome: close.data.outcome, sellableQty: 0, damagedQty: 0, status: closed.status });
+      } catch (error) {
+        if (error instanceof InventoryConflictError) {
+          return NextResponse.json({ error: error.message }, { status: 409 });
+        }
+        if (error instanceof Error && /introuvable/.test(error.message)) {
+          return NextResponse.json({ error: error.message }, { status: 404 });
+        }
+        throw error;
+      }
     }
 
     const parsed = inspectReturnSchema.safeParse(body);
@@ -57,7 +95,6 @@ export async function POST(
       );
     }
 
-    const actor = user.name ?? user.email ?? user.id;
     const db = getDb();
 
     // One immediate transaction: the status guard, the quantity checks and the

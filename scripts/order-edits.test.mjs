@@ -296,3 +296,85 @@ test("unchanged lines on a sold-out variant still allow discount/shipping edits;
   assert.throws(() => editOrder("sold-out", input("sold-out", { lines: [{ variantId: "sold-1", qty: 2 }] }), actor), { status: 409 });
   assert.equal(listOrderEdits("sold-out").length, 1);
 });
+
+test("edits keep the original unit price of untouched lines after a catalog price increase", () => {
+  genericProduct(db, "rise", 100, [["rise-1", []]]);
+  openStock("rise-1", 20, actor.id);
+  orderFixture(db, "rise-order", { productId: "rise", variantId: "rise-1", price: 100 });
+  db.prepare("UPDATE products SET price = 500 WHERE id = 'rise'").run();
+  const state = editOrder("rise-order", input("rise-order", { lines: [{ variantId: "rise-1", qty: 1 }], shippingMode: "free" }), actor);
+  assert.equal(state.snapshot.items[0].unit_price, 100);
+  assert.equal(state.snapshot.total, 100);
+  const more = editOrder("rise-order", input("rise-order", { lines: [{ variantId: "rise-1", qty: 2 }], shippingMode: "free" }), actor);
+  assert.equal(more.snapshot.items[0].unit_price, 100);
+  assert.equal(more.snapshot.total, 200);
+});
+
+test("pack mode recomputes the pack discount from current packs for the edited quantities", () => {
+  genericProduct(db, "pk", 149, [["pk-1", []]]);
+  openStock("pk-1", 20, actor.id);
+  db.prepare(`INSERT INTO product_packs (id, product_id, quantity, price_mad, created_at, updated_at) VALUES ('pk-3', 'pk', 3, 399, ?, ?)`).run(now, now);
+  orderFixture(db, "pack-order", { productId: "pk", variantId: "pk-1", price: 149 });
+  const rows = () => db.prepare("SELECT pack_snapshot_json, discount_type, discount_value, discount_amount FROM orders WHERE id = 'pack-order'").get();
+  // 2 -> 3 in pack mode: pack applies and is snapshotted. Client discount is ignored.
+  let state = editOrder("pack-order", input("pack-order", { lines: [{ variantId: "pk-1", qty: 3 }], discountMode: "pack",
+    discountType: "fixed", discountValue: 1 }), actor);
+  assert.equal(state.snapshot.discountAmount, 48);
+  assert.equal(state.snapshot.total, 399 + 29);
+  assert.equal(state.snapshot.discountMode, "pack");
+  assert.equal(JSON.parse(rows().pack_snapshot_json)[0].packPrice, 399);
+  assert.equal(rows().discount_type, "fixed");
+  // Mode defaults to pack now (snapshot present). 3 -> 2: no pack, no stale discount.
+  state = editOrder("pack-order", input("pack-order", { lines: [{ variantId: "pk-1", qty: 2 }] }), actor);
+  assert.equal(state.snapshot.discountAmount, 0);
+  assert.equal(state.snapshot.total, 2 * 149 + 29);
+  assert.equal(rows().pack_snapshot_json, null);
+  assert.equal(rows().discount_amount, 0);
+  // Back to 3, then manual mode overrides the pack and clears the snapshot.
+  editOrder("pack-order", input("pack-order", { lines: [{ variantId: "pk-1", qty: 3 }], discountMode: "pack" }), actor);
+  assert.notEqual(rows().pack_snapshot_json, null);
+  state = editOrder("pack-order", input("pack-order", { lines: [{ variantId: "pk-1", qty: 3 }], discountMode: "manual",
+    discountType: "fixed", discountValue: 10, shippingMode: "free" }), actor);
+  assert.equal(rows().pack_snapshot_json, null);
+  assert.equal(state.snapshot.discountAmount, 10);
+  assert.equal(state.snapshot.total, 3 * 149 - 10);
+  assert.equal(state.snapshot.discountMode, "manual");
+  const history = listOrderEdits("pack-order");
+  assert.equal(history[0].before.discountMode, "pack");
+  assert.equal(history[0].after.discountMode, "manual");
+});
+
+test("city fee override applies only with explicit applyCityFee and persists in the rules snapshot", () => {
+  const { upsertCityTariff } = loadSource("@/lib/services/city-tariffs");
+  const { orderShippingRules } = loadSource("@/lib/services/order-lines");
+  db.prepare("INSERT OR IGNORE INTO users (id, email, password_hash, name, role, created_at) VALUES ('agent', 'a@x.test', 'x', 'A', 'agent', ?)").run(now);
+  upsertCityTariff({ cityId: 1, courierCost: 20, customerFeeOverride: 60, overrideIgnoresFreeThreshold: false }, "agent");
+  order("city-fee");
+  db.prepare("UPDATE orders SET city_id = 1 WHERE id = 'city-fee'").run();
+  const lines = [{ variantId: "other-39", qty: 1 }];
+  // No flag: nothing changes.
+  let state = editOrder("city-fee", input("city-fee", { lines }), actor);
+  assert.equal(state.snapshot.shipping, 29);
+  assert.equal(orderShippingRules("city-fee").shippingFeeMad, 29);
+  // Explicit flag: override used, persisted, shown in history.
+  state = editOrder("city-fee", input("city-fee", { lines, applyCityFee: true }), actor);
+  assert.equal(state.snapshot.shipping, 60);
+  assert.equal(state.snapshot.total, 210);
+  assert.equal(orderShippingRules("city-fee").shippingFeeMad, 60);
+  assert.equal(listOrderEdits("city-fee")[0].after.cityFeeMad, 60);
+  // A later edit without the flag stays consistent with the snapshot, even if the tariff changes.
+  upsertCityTariff({ cityId: 1, courierCost: 20, customerFeeOverride: 99, overrideIgnoresFreeThreshold: false }, "agent");
+  state = editOrder("city-fee", input("city-fee", { lines, shippingMode: "paid" }), actor);
+  assert.equal(state.snapshot.shipping, 60);
+  // Free-shipping threshold still applies by default...
+  const big = [{ variantId: "other-39", qty: 3 }];
+  state = editOrder("city-fee", input("city-fee", { lines: big, applyCityFee: true }), actor);
+  assert.equal(state.snapshot.shipping, 0);
+  // ...unless the tariff ignores it.
+  upsertCityTariff({ cityId: 1, courierCost: 20, customerFeeOverride: 99, overrideIgnoresFreeThreshold: true }, "agent");
+  state = editOrder("city-fee", input("city-fee", { lines: big, applyCityFee: true }), actor);
+  assert.equal(state.snapshot.shipping, 99);
+  // No override for the city: explicit flag is rejected.
+  order("city-none");
+  assert.throws(() => editOrder("city-none", input("city-none", { applyCityFee: true }), actor), { status: 400 });
+});

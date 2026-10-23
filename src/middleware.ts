@@ -25,7 +25,19 @@ const pageAuth = auth((req, event: NextFetchEvent) => {
   return NextResponse.next();
 });
 
-export default function middleware(request: NextRequest, event: NextFetchEvent) {
+// HSTS decided at request time so it works in the standalone image (runtime env only).
+function withHsts(res: Response): Response {
+  if ((process.env.CRM_PUBLIC_URL ?? "").startsWith("https://")) {
+    res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  return res;
+}
+
+export default async function middleware(request: NextRequest, event: NextFetchEvent) {
+  return withHsts((await route(request, event)) ?? NextResponse.next());
+}
+
+function route(request: NextRequest, event: NextFetchEvent) {
   const path = request.nextUrl.pathname;
   if (path === "/api/admin" || path === "/api/crm" || path.startsWith("/api/admin/") || path.startsWith("/api/crm/")) {
     if (!browserMutationAllowed(request)) {
@@ -34,9 +46,11 @@ export default function middleware(request: NextRequest, event: NextFetchEvent) 
     // Authorization remains in every handler, with live account/session checks.
     return NextResponse.next();
   }
+  if (!/^\/(admin|crm)(\/|$)/.test(path)) return NextResponse.next();
   return pageAuth(request, event);
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/crm/:path*", "/api/admin/:path*", "/api/crm/:path*"],
+  // Everything except build assets and static files; non-CRM paths only get the HSTS header.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/|images/|.*\\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico|woff2?|txt|xml)$).*)"],
 };

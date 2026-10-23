@@ -1,6 +1,7 @@
 import { TRACKING_STATUSES } from "@/lib/shipping/status-map";
 import { nanoid } from "nanoid";
 import { getDb } from "@/lib/db";
+import { getBlockedPhone } from "@/lib/services/customers";
 import type { CommerceOrderItem as OrderItem, CommerceUpsellOffer as UpsellOfferJson, CommerceUpsellStatus as UpsellStatus } from "@/lib/commerce-types";
 
 export const CRM_TIMEZONE = "Africa/Casablanca";
@@ -269,6 +270,36 @@ interface JoinedOrderRow {
   assigned_to: string | null;
   assigned_to_name: string | null;
   next_callback_at: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  utm_term?: string | null;
+  referrer_host?: string | null;
+  landing_path?: string | null;
+  click_id_type?: string | null;
+}
+
+/** First-touch campaign data persisted at checkout; null on pre-attribution and manual orders. */
+export interface OrderAttribution {
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
+  referrerHost: string | null;
+  landingPath: string | null;
+  clickIdType: string | null;
+}
+
+export function attributionFromRow(row: JoinedOrderRow): OrderAttribution | null {
+  const value: OrderAttribution = {
+    utmSource: row.utm_source ?? null, utmMedium: row.utm_medium ?? null,
+    utmCampaign: row.utm_campaign ?? null, utmContent: row.utm_content ?? null,
+    utmTerm: row.utm_term ?? null, referrerHost: row.referrer_host ?? null,
+    landingPath: row.landing_path ?? null, clickIdType: row.click_id_type ?? null,
+  };
+  return Object.values(value).some((v) => v !== null) ? value : null;
 }
 
 export interface OrderListItem {
@@ -287,6 +318,10 @@ export interface OrderListItem {
   duplicateOf: string | null;
   /** Logged "pas de réponse" call attempts. */
   noAnswerCount: number;
+  /** Phone is on the blocklist (orders are still accepted, only flagged). */
+  phoneBlocked: boolean;
+  /** Other orders with this phone that were refused or returned. */
+  priorRefusals: number;
 }
 
 export interface OrderListResult {
@@ -346,6 +381,7 @@ export interface CrmOrder {
   contacts: ContactEntry[];
   submission: CourierSubmissionView | null;
   duplicateOf: string | null;
+  attribution: OrderAttribution | null;
 }
 
 export interface CrmAgent {
@@ -382,6 +418,9 @@ export interface ListOrdersOptions {
   status?: ConfirmationStatus | "all";
   q?: string;
   assignedTo?: string;
+  /** Exact first-touch campaign filters. */
+  utmSource?: string;
+  utmCampaign?: string;
   callbackDue?: boolean;
   /** Courier submission statuses to match; unknown values are dropped. */
   submission?: string[];
@@ -409,6 +448,14 @@ export function listOrders(options: ListOrdersOptions = {}): OrderListResult {
   if (options.assignedTo) {
     where.push("o.assigned_to = ?");
     params.push(options.assignedTo);
+  }
+  if (options.utmSource) {
+    where.push("o.utm_source = ?");
+    params.push(options.utmSource);
+  }
+  if (options.utmCampaign) {
+    where.push("o.utm_campaign = ?");
+    params.push(options.utmCampaign);
   }
   const submissionStatuses = options.submission?.filter((value): value is SubmissionFilterStatus =>
     (SUBMISSION_FILTER_VALUES as readonly string[]).includes(value),
@@ -473,14 +520,21 @@ export function listOrders(options: ListOrdersOptions = {}): OrderListResult {
   const rows = db
     .prepare(
       `SELECT o.*, u.name AS assigned_to_name, ${NEXT_CALLBACK_SQL} AS next_callback_at,
-              (SELECT COUNT(*) FROM order_contacts c WHERE c.order_id = o.id AND c.outcome = 'no_answer') AS no_answer_count
+              (SELECT COUNT(*) FROM order_contacts c WHERE c.order_id = o.id AND c.outcome = 'no_answer') AS no_answer_count,
+              (bp.phone IS NOT NULL) AS phone_blocked,
+              (SELECT COUNT(*) FROM orders po
+               WHERE ${normalizedPhoneExpr("po.customer_phone")} = ${normalizedPhoneExpr("o.customer_phone")} AND po.id <> o.id
+                 AND (po.delivery_outcome = 'refused'
+                      OR EXISTS (SELECT 1 FROM returns r JOIN courier_submissions cs ON cs.id = r.submission_id
+                                 WHERE cs.order_id = po.id))) AS prior_refusals
        FROM orders o
        LEFT JOIN users u ON u.id = o.assigned_to
+       LEFT JOIN blocked_phones bp ON bp.phone = o.customer_phone
        ${whereSql}
        ORDER BY o.created_at DESC
        LIMIT ? OFFSET ?`,
     )
-    .all(...params, pageSize, (page - 1) * pageSize) as Array<JoinedOrderRow & { no_answer_count: number }>;
+    .all(...params, pageSize, (page - 1) * pageSize) as Array<JoinedOrderRow & { no_answer_count: number; phone_blocked: number; prior_refusals: number }>;
 
   const duplicates = findDuplicatePhones(
     rows.map((row) => ({
@@ -505,6 +559,8 @@ export function listOrders(options: ListOrdersOptions = {}): OrderListResult {
     nextCallbackAt: row.next_callback_at,
     duplicateOf: duplicates.get(row.id) ?? null,
     noAnswerCount: Number(row.no_answer_count),
+    phoneBlocked: !!row.phone_blocked,
+    priorRefusals: Number(row.prior_refusals),
   }));
 
   return {
@@ -538,6 +594,11 @@ function normalizedPhoneExpr(operand: string): string {
   return `replace(replace(replace(replace(${operand}, ' ', ''), '-', ''), '(', ''), ')', '')`;
 }
 
+/** JS twin of normalizedPhoneExpr: strips exactly the same characters (space, -, (, )). */
+function normalizePhoneKey(phone: string): string {
+  return phone.replace(/[ \-()]/g, "");
+}
+
 /** For each order id, another non-cancelled order sharing the same normalized phone (if any). */
 function findDuplicatePhones(
   orders: Array<{ id: string; phone: string; status: string }>,
@@ -547,7 +608,7 @@ function findDuplicatePhones(
 
   // Mirrors the SQL normalization below (separators are stripped; phones are
   // stored +212… normalized at creation).
-  const normalize = (phone: string) => phone.replace(/[\s\-().]/g, "");
+  const normalize = normalizePhoneKey;
 
   const phones = [...new Set(orders.map((o) => normalize(o.phone)))];
   const placeholders = phones.map(() => normalizedPhoneExpr("?")).join(",");
@@ -684,6 +745,7 @@ export function getCrmOrder(id: string): CrmOrder | null {
         }
       : null,
     duplicateOf: duplicates.get(row.id) ?? null,
+    attribution: attributionFromRow(row),
   };
 }
 
@@ -832,6 +894,9 @@ export interface CustomerHistory {
   confirmedCount: number;
   cancelledCount: number;
   returnedCount: number;
+  deliveredCount: number;
+  refusedCount: number;
+  blocked: { reason: string; createdAt: string; createdBy: string | null } | null;
   recent: CustomerHistoryOrder[];
 }
 
@@ -842,12 +907,13 @@ const CUSTOMER_HISTORY_LIMIT = 8;
  * included): helps agents spot repeat refusers before confirming.
  */
 export function getCustomerHistory(orderId: string, phone: string): CustomerHistory {
-  const normalized = phone.replace(/[\s\-().]/g, "");
+  const normalized = normalizePhoneKey(phone);
   const rows = getDb()
     .prepare(
       `SELECT o.id, o.confirmation_status, o.total, o.created_at, o.archived_at,
               EXISTS (SELECT 1 FROM returns r JOIN courier_submissions cs ON cs.id = r.submission_id
-                      WHERE cs.order_id = o.id) AS returned
+                      WHERE cs.order_id = o.id) AS returned,
+              o.delivery_outcome
        FROM orders o
        WHERE ${normalizedPhoneExpr("o.customer_phone")} = ${normalizedPhoneExpr("?")} AND o.id <> ?
        ORDER BY o.created_at DESC, o.id DESC`,
@@ -855,12 +921,17 @@ export function getCustomerHistory(orderId: string, phone: string): CustomerHist
     .all(normalized, orderId) as Array<{
       id: string; confirmation_status: ConfirmationStatus; total: number;
       created_at: string; archived_at: string | null; returned: number;
+      delivery_outcome: string | null;
     }>;
+  const block = getBlockedPhone(phone);
   return {
     orderCount: rows.length,
     confirmedCount: rows.filter((r) => r.confirmation_status === "confirmed").length,
     cancelledCount: rows.filter((r) => r.confirmation_status === "cancelled").length,
     returnedCount: rows.filter((r) => r.returned).length,
+    deliveredCount: rows.filter((r) => r.delivery_outcome === "delivered").length,
+    refusedCount: rows.filter((r) => r.delivery_outcome === "refused").length,
+    blocked: block ? { reason: block.reason, createdAt: block.createdAt, createdBy: block.createdByName ?? block.createdBy } : null,
     recent: rows.slice(0, CUSTOMER_HISTORY_LIMIT).map((r) => ({
       id: r.id,
       confirmationStatus: r.confirmation_status,

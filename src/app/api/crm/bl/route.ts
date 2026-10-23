@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { AuthGuardError, requireUser } from "@/lib/auth-guards";
 import { createBlSchema } from "@/lib/api-schemas";
 import { BlError, createOrResumeBl } from "@/lib/services/expeditions";
+import { readLimitedJson, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+const MAX_BODY_BYTES = 64 * 1024;
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
@@ -11,8 +13,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     let body: unknown;
     try {
-      body = await request.json();
-    } catch {
+      body = await readLimitedJson(request, MAX_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
       return NextResponse.json({ error: "Requête invalide" }, { status: 400 });
     }
     const parsed = createBlSchema.safeParse(body);

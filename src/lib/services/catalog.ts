@@ -85,6 +85,13 @@ export function getVariantById(id: string): (VariantView & { productActive: bool
   return { ...variant, productActive: product.active, price: product.price, product };
 }
 
+/** Admin-only: current cost per variant ID (null when unset). Deliberately kept
+ * out of CatalogProduct/DTOs so catalog-agent, storefront and v1 never see it. */
+export function getVariantCosts(productId: string): Record<string, number | null> {
+  const rows = getDb().prepare("SELECT id, cost_price FROM variants WHERE product_id = ?").all(productId) as { id: string; cost_price: number | null }[];
+  return Object.fromEntries(rows.map((row) => [row.id, row.cost_price]));
+}
+
 /** Explicit public whitelist: no numeric availability, balances or timestamps. */
 export function toStorefrontProductView(product: CatalogProduct): StorefrontProductView {
   const variants = product.variants.filter((variant) => variant.active).map((variant) => ({
@@ -160,6 +167,7 @@ function saveVariants(productId: string, targets: TargetVariant[], definitions: 
       VALUES (@id, @product_id, @sku, @label, @options_json, @options_key, @images_json, @active)
       ON CONFLICT(id) DO UPDATE SET label=excluded.label, options_json=excluded.options_json, options_key=excluded.options_key,
       images_json=excluded.images_json, active=excluded.active`).run(values);
+    if (variant.costPrice !== undefined) db.prepare("UPDATE variants SET cost_price = ? WHERE id = ?").run(variant.costPrice, variant.id);
   }
   return next;
 }

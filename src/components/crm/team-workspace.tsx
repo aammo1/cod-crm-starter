@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   KeyRoundIcon,
+  LogOutIcon,
   PencilIcon,
   PlusIcon,
   ShieldAlertIcon,
@@ -24,12 +25,18 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { TeamAgent } from "@/lib/services/team";
+import type { TeamAdmin, TeamAgent } from "@/lib/services/team";
 
 const fieldClassName =
   "w-full border-input bg-background text-foreground placeholder:text-muted-foreground/50 focus-visible:border-ring focus-visible:ring-ring/20";
 
-export function TeamWorkspace({ initialAgents }: { initialAgents: TeamAgent[] }) {
+export function TeamWorkspace({
+  initialAgents,
+  otherAdmins = [],
+}: {
+  initialAgents: TeamAgent[];
+  otherAdmins?: TeamAdmin[];
+}) {
   const router = useRouter();
 
   // Create Agent Dialog
@@ -51,6 +58,7 @@ export function TeamWorkspace({ initialAgents }: { initialAgents: TeamAgent[] })
 
   // Toggle Active State
   const [statusPendingId, setStatusPendingId] = useState<string | null>(null);
+  const [selfPending, setSelfPending] = useState(false);
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
@@ -223,6 +231,44 @@ export function TeamWorkspace({ initialAgents }: { initialAgents: TeamAgent[] })
     }
   }
 
+  async function revokeAgentSessions(agent: Pick<TeamAgent, "id" | "name">) {
+    if (statusPendingId) return;
+    if (!window.confirm(`Déconnecter ${agent.name} de tous ses appareils ?`)) return;
+    setStatusPendingId(agent.id);
+    try {
+      const response = await fetch(`/api/crm/team/${agent.id}/sessions`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        toast.error(data?.error ?? "Impossible de révoquer les sessions.");
+        return;
+      }
+      toast.success(`${agent.name} a été déconnecté de tous ses appareils.`);
+    } catch {
+      toast.error("Erreur de connexion. Veuillez réessayer.");
+    } finally {
+      setStatusPendingId(null);
+    }
+  }
+
+  async function revokeOwnSessions() {
+    if (selfPending) return;
+    if (!window.confirm("Vous déconnecter de tous vos appareils, y compris celui-ci ?")) return;
+    setSelfPending(true);
+    try {
+      const response = await fetch("/api/crm/session", { method: "DELETE" });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        toast.error(data?.error ?? "Impossible de vous déconnecter.");
+        return;
+      }
+      window.location.assign("/login");
+    } catch {
+      toast.error("Erreur de connexion. Veuillez réessayer.");
+    } finally {
+      setSelfPending(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -241,14 +287,26 @@ export function TeamWorkspace({ initialAgents }: { initialAgents: TeamAgent[] })
           </p>
         </div>
 
-        <Button
-          type="button"
-          onClick={() => setCreateOpen(true)}
-          className="min-h-[44px] self-start sm:self-auto"
-        >
-          <PlusIcon className="size-4" aria-hidden="true" />
-          Ajouter un agent
-        </Button>
+        <div className="flex flex-wrap gap-2 self-start sm:self-auto">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={selfPending}
+            onClick={revokeOwnSessions}
+            className="min-h-[44px]"
+          >
+            <LogOutIcon className="size-4" aria-hidden="true" />
+            Me déconnecter de tous les appareils
+          </Button>
+          <Button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="min-h-[44px]"
+          >
+            <PlusIcon className="size-4" aria-hidden="true" />
+            Ajouter un agent
+          </Button>
+        </div>
       </div>
 
       {initialAgents.length === 0 ? (
@@ -334,6 +392,20 @@ export function TeamWorkspace({ initialAgents }: { initialAgents: TeamAgent[] })
 
                         <Button
                           type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={statusPendingId === agent.id}
+                          onClick={() => revokeAgentSessions(agent)}
+                          title="Déconnecter partout"
+                          aria-label={`Déconnecter ${agent.name} partout`}
+                          className="min-h-[44px] min-w-[44px]"
+                        >
+                          <LogOutIcon className="size-4" aria-hidden="true" />
+                          <span className="hidden lg:inline">Déconnecter partout</span>
+                        </Button>
+
+                        <Button
+                          type="button"
                           variant="outline"
                           size="sm"
                           disabled={statusPendingId === agent.id}
@@ -365,6 +437,37 @@ export function TeamWorkspace({ initialAgents }: { initialAgents: TeamAgent[] })
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {otherAdmins.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+          <h2 className="border-b border-border bg-muted/30 px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground sm:px-6">
+            Administrateurs
+          </h2>
+          <ul className="divide-y divide-border">
+            {otherAdmins.map((admin) => (
+              <li key={admin.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6">
+                <div className="min-w-0">
+                  <div className="font-medium text-foreground">{admin.name}</div>
+                  <div className="truncate font-mono text-xs text-muted-foreground">{admin.email}</div>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={statusPendingId === admin.id}
+                  onClick={() => revokeAgentSessions(admin)}
+                  title="Déconnecter partout"
+                  aria-label={`Déconnecter ${admin.name} partout`}
+                  className="min-h-[44px] min-w-[44px]"
+                >
+                  <LogOutIcon className="size-4" aria-hidden="true" />
+                  <span className="hidden lg:inline">Déconnecter partout</span>
+                </Button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

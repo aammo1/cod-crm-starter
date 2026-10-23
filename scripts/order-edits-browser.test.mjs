@@ -37,6 +37,7 @@ test("mobile agent operates default, non-size and two-axis variants with history
   const origin = `http://localhost:${port}`;
   const password = randomUUID();
   const env = { ...process.env, AUTH_URL: origin, SECURITY_ALLOWED_ORIGINS: origin,
+    CRM_PUBLIC_URL: origin, SECURITY_ACCEPT_GLOBAL_BUDGETS: "1",
     OZON_SUBMIT_INTERVAL_SEC: "3600", OZON_POLL_INTERVAL_MIN: "3600" };
   let server, browser;
   let output = "";

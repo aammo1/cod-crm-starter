@@ -26,7 +26,7 @@ const { authenticateCredentials } = loadSource("@/lib/services/credentials");
 const { hashPassword, verifyPasswordAsync } = loadSource("@/lib/password");
 const { readLimitedJson, readLimitedFormData } = loadSource("@/lib/request-body");
 const { browserMutationAllowed } = loadSource("@/lib/browser-mutation");
-const { createAgent, updateAgent, resetAgentPassword } = loadSource("@/lib/services/team");
+const { createAgent, updateAgent, resetAgentPassword, revokeSessions, listOtherAdmins } = loadSource("@/lib/services/team");
 
 // Only framework request context/server-only marker are replaced. Security,
 // account validation, roles, SQLite transactions and budgets are real services.
@@ -257,7 +257,29 @@ test("credentials retain attempt limits, session revocation and admin/agent sepa
   assert.equal(await verifyPasswordAsync(password, "scrypt$bad$bad"), false);
 });
 
-test("portable browser origin policy rejects missing, sibling, opaque, malformed and forged-host origins", () => {
+test("revokeSessions invalidates old session cookies for agents and admins and audits actor", async () => {
+  const password = "Long-Test-Password-123!";
+  const user = createAgent({ name: "Revoked", email: "revoked@example.test", password }, "admin-test");
+  session = { user: { id: user.id, sessionVersion: 0 } };
+  assert.equal((await requireUser()).id, user.id);
+  revokeSessions(user.id);
+  await assert.rejects(requireUser(), (error) => error instanceof AuthGuardError && error.status === 401);
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
+  session = { user: { id: user.id, sessionVersion: 1 } };
+  assert.equal((await requireAdmin()).id, user.id);
+  revokeSessions(user.id, "admin-test");
+  await assert.rejects(requireAdmin(), (error) => error.status === 401);
+  assert.equal(db.prepare("SELECT session_version v FROM users WHERE id = ?").get(user.id).v, 2);
+  assert.ok(db.prepare("SELECT 1 FROM security_audit WHERE event = 'user.sessions_revoked' AND target_id = ? AND actor_id = 'admin-test'").get(user.id));
+  revokeSessions(user.id, user.id);
+  assert.ok(db.prepare("SELECT 1 FROM security_audit WHERE event = 'user.sessions_revoked' AND target_id = ? AND actor_id = ?").get(user.id, user.id));
+  assert.ok(listOtherAdmins("someone-else").some((a) => a.id === user.id));
+  assert.ok(!listOtherAdmins(user.id).some((a) => a.id === user.id));
+  assert.throws(() => revokeSessions("missing-user"), (error) => error.status === 404);
+  session = null;
+});
+
+test("portable browser origin policy rejects missing, sibling, opaque, malformed and forged-host origins", async () => {
   const previous = process.env.NODE_ENV;
   process.env.NODE_ENV = "production";
   try {
@@ -285,7 +307,7 @@ test("portable browser origin policy rejects missing, sibling, opaque, malformed
   for (const route of ["crm/team", "admin/products", "crm", "admin"]) {
     const req = request({}, route, { origin: "https://attacker.example", authorization: `Bearer ${key}` });
     Object.defineProperty(req, "nextUrl", { value: new URL(req.url) });
-    assert.equal(middleware(req, {}).status, 403);
+    assert.equal((await middleware(req, {})).status, 403);
   }
   assert.equal(middlewareConfig.matcher.includes("/api/storefront/:path*"), false);
   const spoofed = request({}, "crm/team", { "x-real-ip": "203.0.113.8", "x-forwarded-for": "203.0.113.9, 203.0.113.10" });
@@ -294,4 +316,44 @@ test("portable browser origin policy rejects missing, sibling, opaque, malformed
   assert.equal(trustedClientIp(spoofed), "203.0.113.10");
   assert.equal(trustedClientIp(request({}, "crm/team", { "x-forwarded-for": "203.0.113.9, invalid" })), null);
   delete process.env.SECURITY_TRUSTED_IP_HEADER;
+});
+
+test("task 16: per-IP budgets are primary behind a trusted header and logins survive floods/saturation", async () => {
+  resetBudgets();
+  process.env.SECURITY_TRUSTED_IP_HEADER = "x-real-ip";
+  try {
+    const { publicRequestBudget } = loadSource("@/lib/services/security-budgets");
+    const checkoutFrom = (ip) => publicRequestBudget(request({}, "store/checkout", { "x-real-ip": ip }), "checkout");
+    for (let i = 0; i < 20; i++) assert.equal(checkoutFrom("203.0.113.1"), 0);
+    assert.ok(checkoutFrom("203.0.113.1") > 0);
+    assert.equal(checkoutFrom("203.0.113.2"), 0);
+
+    const password = "Long-Test-Password-123!";
+    createAgent({ name: "Flood", email: "flood@example.test", password }, "admin-test");
+    const login = (email, pw, ip) => authenticateCredentials({ email, password: pw }, request({}, "auth", { "x-real-ip": ip }));
+    for (let i = 0; i < 40; i++) await login("ghost@example.test", "wrong-password-1", "203.0.113.50");
+    for (let i = 0; i < 12; i++) await login("flood@example.test", "wrong-password-1", "203.0.113.50");
+    assert.equal(await login("flood@example.test", password, "203.0.113.50"), null);
+    assert.ok(await login("flood@example.test", password, "203.0.113.51"));
+
+    resetBudgets();
+    // Saturation: correct passwords while scrypt is busy must not consume account budgets.
+    const user = createAgent({ name: "Busy", email: "busy@example.test", password }, "admin-test");
+    const results = await Promise.all(Array.from({ length: 12 }, () => login("busy@example.test", password, "203.0.113.60")));
+    assert.ok(results.some((r) => r === null), "some attempts should hit saturation");
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM security_budgets WHERE key LIKE 'login:account%'").get().n, 0);
+    assert.ok(user);
+    assert.ok(await login("busy@example.test", password, "203.0.113.60"));
+  } finally { delete process.env.SECURITY_TRUSTED_IP_HEADER; resetBudgets(); }
+});
+
+test("task 16: phone budget reports its scope", () => {
+  resetBudgets();
+  const { consumeBudgetsDetailed } = loadSource("@/lib/services/security-budgets");
+  for (let i = 0; i < 5; i++) assert.equal(consumeStorefrontNewOrderPhoneBudget("0612345678"), 0);
+  assert.ok(consumeStorefrontNewOrderPhoneBudget("0612345678") > 0);
+  const hit = consumeBudgetsDetailed([{ key: budgetKey("checkout:phone", "x"), limit: 1, windowMs: 1000, scope: "phone" }]);
+  assert.equal(hit.limited, false);
+  const denied2 = consumeBudgetsDetailed([{ key: budgetKey("checkout:phone", "x"), limit: 1, windowMs: 1000, scope: "phone" }]);
+  assert.deepEqual([denied2.limited, denied2.scope], [true, "phone"]);
 });

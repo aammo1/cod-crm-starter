@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { AuthGuardError, requireUser } from "@/lib/auth-guards";
 import { parcelHandoffSchema } from "@/lib/api-schemas";
 import { HandoffError, handoffParcel } from "@/lib/services/expeditions";
+import { readLimitedJson, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+const MAX_BODY_BYTES = 32 * 1024;
 
 export async function POST(
   request: Request,
@@ -17,8 +19,9 @@ export async function POST(
     // present and must match it.
     let body: unknown = {};
     try {
-      body = await request.json();
-    } catch {
+      body = await readLimitedJson(request, MAX_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
       body = {};
     }
     const parsed = parcelHandoffSchema.safeParse(body ?? {});

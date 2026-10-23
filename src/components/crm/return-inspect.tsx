@@ -87,9 +87,11 @@ function lockedLineNote(): string {
 export function ReturnInspectForm({
   returnId,
   lines,
+  isAdmin = false,
 }: {
   returnId: string;
   lines: InspectLine[];
+  isAdmin?: boolean;
 }) {
   const router = useRouter();
   const [splits, setSplits] = useState<Record<number, SplitInput>>(() =>
@@ -100,6 +102,7 @@ export function ReturnInspectForm({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const [closeOutcome, setCloseOutcome] = useState<"closed_empty" | "lost">("closed_empty");
   const reasonOk = reason.trim().length > 0;
   const anyInspectable = lines.some((line) => line.inspectable);
 
@@ -161,6 +164,34 @@ export function ReturnInspectForm({
       router.refresh();
     } catch {
       toast.error("Erreur lors de l'inspection.");
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function onCloseEmpty() {
+    if (busyRef.current) return;
+    if (!reasonOk) {
+      toast.error("Veuillez indiquer le motif de la clôture.");
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/crm/returns/${returnId}/inspect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outcome: closeOutcome, reason: reason.trim() }),
+      });
+      if (!response.ok) {
+        toast.error(await readError(response, "Erreur lors de la clôture du retour."));
+        return;
+      }
+      toast.success("Retour clôturé sans article — stock inchangé.");
+      router.refresh();
+    } catch {
+      toast.error("Erreur lors de la clôture du retour.");
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -294,6 +325,34 @@ export function ReturnInspectForm({
           <ScanSearchIcon aria-hidden />
           {busy ? "Inspection…" : "Valider l'inspection"}
         </Button>
+      </div>
+      <div className="space-y-2 border-t border-border pt-3">
+        <Label htmlFor={`close-outcome-${returnId}`} className="text-foreground">
+          Clôturer sans article
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          Colis arrivé vide ou perdu : aucun mouvement de stock. Le motif ci-dessus est obligatoire.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            id={`close-outcome-${returnId}`}
+            value={closeOutcome}
+            onChange={(event) => setCloseOutcome(event.target.value as "closed_empty" | "lost")}
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+          >
+            <option value="closed_empty">Colis vide</option>
+            {isAdmin ? <option value="lost">Perdu par le transporteur</option> : null}
+          </select>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onCloseEmpty}
+            disabled={busy || !reasonOk}
+          >
+            Clôturer sans article
+          </Button>
+        </div>
       </div>
     </div>
   );

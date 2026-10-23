@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { storeConfig, htmlDir } from "@/config";
+import { storeConfig, htmlDir, whatsappLink } from "@/config";
+import { t } from "@/config/i18n";
 import { playfair, inter, interNoPreload } from "../fonts";
 import "../globals.css";
 import { getShopSettings } from "@/lib/storefront/data";
 import { CartProvider } from "@/stores/cart-provider";
 import { FunnelHost } from "@/components/storefront/funnel/funnel-host";
+import { SiteJsonLd } from "@/components/storefront/seo/site-json-ld";
+import { baseOpenGraph } from "@/lib/storefront/seo";
 import { Pixels } from "@/components/storefront/tracking/pixels";
 import { AnnouncementBar } from "@/components/storefront/layout/announcement-bar";
 import { Header } from "@/components/storefront/layout/header";
@@ -39,12 +42,8 @@ export const metadata: Metadata = {
   title: { default: seo.title, template: `%s | ${storeConfig.name}` },
   description: seo.description,
   metadataBase: new URL(storeConfig.domain),
-  openGraph: {
-    title: seo.title,
-    description: seo.description,
-    siteName: storeConfig.name,
-    ...(seo.ogImage ? { images: [{ url: seo.ogImage }] } : {}),
-  },
+  openGraph: baseOpenGraph(),
+  twitter: { card: "summary_large_image" },
   ...(brand.icon ? { icons: { icon: brand.icon } } : {}),
 };
 
@@ -61,11 +60,12 @@ export default async function StorefrontLayout({ children }: { children: React.R
   const c = storeConfig;
   const bc = brand.colors;
   const radius = RADIUS[brand.radius];
-  const themeCss = `:root{--store-primary:${bc.primary};--store-primary-fg:${bc.primaryForeground};--store-accent:${bc.accent};--store-bg:${bc.background};--store-fg:${bc.foreground};--store-muted:${bc.muted};--store-border:${bc.border};--store-radius:${radius}}`;
+  const themeCss = `:root{--store-primary:${bc.primary};--store-primary-fg:${bc.primaryForeground};--store-accent:${bc.accent};--store-accent-fg:${bc.accentForeground};--store-bg:${bc.background};--store-fg:${bc.foreground};--store-muted:${bc.muted};--store-border:${bc.border};--store-radius:${radius}}`;
   return (
     <html lang={storeConfig.locale} dir={htmlDir} suppressHydrationWarning>
       <head>
         <style>{themeCss}</style>
+        <SiteJsonLd />
       </head>
       <body
         className={`${playfair.variable} ${interFont.variable} ${cairo.variable} font-sans antialiased`}
@@ -79,13 +79,14 @@ export default async function StorefrontLayout({ children }: { children: React.R
             {/* Pages render their own <main>. */}
             <div>{children}</div>
             <Footer />
-            <WhatsAppButton />
+            <WhatsAppButton href={whatsappLink()} label={t(storeConfig.locale, "contactWhatsapp")} />
             <FunnelHost
               locale={c.locale}
               storeSlug={c.slug}
               whatsapp={c.contact.whatsapp}
               shippingFeeMad={settings.shippingFeeMad}
               freeShippingThresholdMad={settings.freeShippingThresholdMad}
+              leadsEnabled={c.leads.enabled}
             />
             <Pixels metaPixelId={c.tracking.metaPixelId} tiktokPixelId={c.tracking.tiktokPixelId} />
           </div>

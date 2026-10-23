@@ -53,6 +53,39 @@ export function captureClickIds(): void {
   } catch { /* Tracking must never interrupt shopping. */ }
 }
 
+const FIRST_TOUCH = "first-touch";
+const UTM = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"];
+
+/** Stored first-touch fields (30-day expiry) in the checkout wire format. */
+export function readFirstTouch(): Record<string, string> {
+  try {
+    const { at, ...rest } = JSON.parse(localStorage.getItem(FIRST_TOUCH) ?? "{}");
+    if (Date.now() - at < 30 * 864e5) return rest;
+  } catch { /* storage unavailable */ }
+  return {};
+}
+
+/** Stores utm_*, click id type, external referrer host and landing path; a new campaign click replaces it. */
+export function captureFirstTouch(): void {
+  try {
+    const params = new URLSearchParams(location.search);
+    const touch: Record<string, string | number> = {};
+    for (const key of UTM) {
+      const value = params.get(key)?.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 200);
+      if (value) touch[key] = value;
+    }
+    const click = ["fbclid", "ttclid", "gclid", "ScCid"].find((key) => params.has(key));
+    if (click) touch.clickIdType = click.toLowerCase();
+    if (Object.keys(touch).length || !Object.keys(readFirstTouch()).length) {
+      const host = new URL(document.referrer || "x:").hostname;
+      if (host && host !== location.hostname) touch.referrerHost = host;
+      touch.landingPath = location.pathname;
+      touch.at = Date.now();
+      localStorage.setItem(FIRST_TOUCH, JSON.stringify(touch));
+    }
+  } catch { /* Tracking must never interrupt shopping. */ }
+}
+
 /** Fires browser pixels (if loaded or queued) and posts the same eventId to /api/pixel. */
 export function track(name: TrackName, contents: TrackContent[] = []): string {
   const eventId = newEventId();

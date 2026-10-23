@@ -4,8 +4,10 @@ import { nanoid } from "nanoid";
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { stockAdjustSchema } from "@/lib/services/inventory-schemas";
 import { InventoryConflictError, InventoryValidationError, adjustStock } from "@/lib/services/inventory";
+import { readLimitedJson, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+const MAX_BODY_BYTES = 128 * 1024;
 
 export async function POST(
   request: Request,
@@ -15,8 +17,9 @@ export async function POST(
 
     let body: unknown;
     try {
-      body = await request.json();
-    } catch {
+      body = await readLimitedJson(request, MAX_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
       return NextResponse.json({ error: "Requête invalide" }, { status: 400 });
     }
 

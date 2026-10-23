@@ -1,7 +1,6 @@
-const MA_PHONE = /^(?:\+212|00212|212|0)([5-7]\d{8})$/;
+import { normalizeMaPhoneCore } from "@/lib/phone-core";
 
-/** Client-side convenience check. The server (normalizeMaPhone) is authoritative. */
+/** Client-side check; shares one dependency-free normalizer with the server. Returns +2126XXXXXXXX or null. */
 export function normalizeMaPhoneClient(input: string): string | null {
-  const match = MA_PHONE.exec(input.replace(/[\s.\-()]/g, ""));
-  return match ? `0${match[1]}` : null;
+  return normalizeMaPhoneCore(input);
 }

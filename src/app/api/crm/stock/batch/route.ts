@@ -3,13 +3,15 @@ import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { stockBatchSchema } from "@/lib/services/inventory-schemas";
 import { applyStockBatch, InventoryConflictError, InventoryValidationError } from "@/lib/services/inventory";
+import { readLimitedJsonOrNull, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+const MAX_BODY_BYTES = 128 * 1024;
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const user = await requireAdmin();
-    const body: unknown = await request.json().catch(() => null);
+    const body: unknown = await readLimitedJsonOrNull(request, MAX_BODY_BYTES);
     const parsed = stockBatchSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: "Requête de stock invalide : vérifiez les quantités, le motif et le stock attendu." }, { status: 400 });
@@ -19,6 +21,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();
+    if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof InventoryConflictError || error instanceof InventoryValidationError) {
       return NextResponse.json({ error: error.message }, { status: error instanceof InventoryConflictError ? 409 : 400 });
     }

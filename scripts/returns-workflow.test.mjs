@@ -206,3 +206,36 @@ test("two processes inspecting one received return cannot duplicate stock or cha
     children.forEach((child) => { if (child.exitCode === null) child.kill(); });
   }
 });
+
+test("a received return closes with zero units: no stock or ledger change, replay is idempotent", () => {
+  const { returnId, submissionId } = receivedReturn("close-empty", [["v38", 1]]);
+  const { closeReturnWithoutUnits } = loadSource("@/lib/services/returns");
+  const before = physical("v38");
+  const movements = () => db.prepare("SELECT COUNT(*) n FROM stock_movements").get().n;
+  const movementsBefore = movements();
+  const closed = closeReturnWithoutUnits(returnId, "closed_empty", "Colis vide", actor);
+  assert.equal(closed.status, "inspected");
+  assert.equal(closed.reason, "[closed_empty] Colis vide");
+  assert.deepEqual([closed.sellableQty, closed.damagedQty], [0, 0]);
+  assert.deepEqual(physical("v38"), before);
+  assert.equal(movements(), movementsBefore);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM return_lines WHERE return_id = ?").get(returnId).n, 0);
+  assert.equal(closeReturnWithoutUnits(returnId, "lost", "autre", actor).reason, "[closed_empty] Colis vide");
+  assert.ok(submissionId);
+});
+
+test("zero-unit closure rejects returns not yet received and returns already inspected with units", () => {
+  const { closeReturnWithoutUnits } = loadSource("@/lib/services/returns");
+  createOrder({ id: "close-early", customerName: "Cliente", customerPhone: "+212612345678",
+    items: [{ product_id: "p", variant_id: "v38", sku: "v38", name: "Sérum test", variant_label: "250 ml",
+      options: [], quantity: 1, unit_price: 300, line_total: 300 }], subtotal: 300, shipping: 29, total: 329 });
+  reserveForOrder("close-early", [{ variantId: "v38", qty: 1 }], actor, "test");
+  dispatchOrder("close-early", actor);
+  db.prepare(`INSERT INTO courier_submissions (id, order_id, status, next_retry_at, created_at, updated_at)
+    VALUES ('sub_close-early', 'close-early', 'submitted', ?, ?, ?)`).run(now, now, now);
+  const early = ensureReturn("sub_close-early", "test");
+  assert.throws(() => closeReturnWithoutUnits(early.id, "lost", "perdu", actor), /non reçu/);
+  const inspected = receivedReturn("close-after", [["v38", 1]]);
+  receiveReturnLines(inspected.submissionId, "close-after", [{ variantId: "v38", sellableQty: 1, damagedQty: 0 }], actor, inspected.returnId);
+  assert.throws(() => closeReturnWithoutUnits(inspected.returnId, "closed_empty", "vide", actor), /déjà inspecté/);
+});

@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:crm && npm run test:security && npm run test:meta && npm run test:assistant && npm run test:catalog-agent && npm run test:release-tree",
+    "test": "npm run test:unit && npm run test:crm && npm run test:security && npm run test:meta && npm run test:assistant && npm run test:catalog-agent && npm run test:release-tree",
+    "test:unit": "node --test \"scripts/unit/*.test.mjs\"",
     "test:bootstrap": "node --test scripts/bootstrap.test.mjs",
     "test:meta": "node --test scripts/meta-workflow.test.mjs",
     "test:security": "node --test scripts/security-workflow.test.mjs",
@@ -24,6 +25,7 @@
     "test:catalog-agent": "node --test scripts/catalog-agent.test.mjs",
     "test:crm": "node --test scripts/order-workflow.test.mjs scripts/order-edits.test.mjs scripts/order-lifecycle.test.mjs scripts/confirmed-test-cleanup.test.mjs scripts/bl-workflow.test.mjs scripts/returns-workflow.test.mjs scripts/tracking-workflow.test.mjs scripts/mock-flow.test.mjs scripts/submission-resolution.test.mjs scripts/dashboard-accuracy.test.mjs scripts/inventory-workflow.test.mjs scripts/manual-order.test.mjs",
     "backup": "node scripts/backup-db.mjs",
+    "backup:verify": "node scripts/verify-backup.mjs",
     "new-store": "node scripts/new-store.mjs",
     "perf-budget": "node scripts/perf-budget.mjs"
   },

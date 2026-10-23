@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import { AuthGuardError, requireUser } from "@/lib/auth-guards";
 import { crmOrderListQuerySchema } from "@/lib/api-schemas";
 import { listOrders } from "@/lib/services/orders";
@@ -7,8 +8,10 @@ import {
   createManualOrder,
   ManualOrderError,
 } from "@/lib/services/manual-orders";
+import { readLimitedJson, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+const MAX_BODY_BYTES = 64 * 1024;
 
 export async function GET(request: Request): Promise<NextResponse> {
   try {
@@ -30,6 +33,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       status: parsed.data.status,
       q: parsed.data.q,
       assignedTo: parsed.data.assignedTo,
+      utmSource: parsed.data.utm_source,
+      utmCampaign: parsed.data.utm_campaign,
       callbackDue: parsed.data.callbackDue,
       submission: parsed.data.submission,
       page: parsed.data.page,
@@ -48,8 +53,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     let body: unknown;
     try {
-      body = await request.json();
-    } catch {
+      body = await readLimitedJson(request, MAX_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
       return NextResponse.json(
         { error: "Corps de requête invalide" },
         { status: 400 },
@@ -80,7 +86,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         { status: error.status },
       );
     }
-    console.error("Erreur lors de la création manuelle de commande :", error);
+    log.error("manual_order_create_failed", {
+      kind: error instanceof Error ? error.name : "unknown",
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { error: "Une erreur est survenue lors de la création de la commande." },
       { status: 500 },

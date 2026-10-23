@@ -1,18 +1,37 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { SUBMISSION_LAST_TICK_KEY, TRACKING_LAST_TICK_KEY } from "@/lib/services/app-state";
+import { deliveryProviderName, runtimeEnvWarnings } from "@/lib/env";
+import { workerLeaseStatus } from "@/lib/services/process-lease";
+import { pollIntervalMs } from "@/lib/services/tracking";
+import {
+  isWorkerStale,
+  overallStatus,
+  readWorkerStatus,
+  type WorkerName,
+} from "@/lib/services/worker-status";
 import { workerHealth } from "@/lib/workers";
+import { WORKER_INTERVAL_MS as META_INTERVAL_MS } from "@/lib/workers/meta";
+import { submissionIntervalMs } from "@/lib/workers/submission";
+import { WORKER_INTERVAL_MS as TIKTOK_INTERVAL_MS } from "@/lib/workers/tiktok";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-interface QueueCounts {
-  submissionsQueued: number;
-  submissionsNeedsReview: number;
-  submissionsFailed: number;
+const MIN_TOKEN_LENGTH = 32;
+
+function detailsAuthorized(request: Request): boolean {
+  const expected = process.env.HEALTH_DETAILS_TOKEN;
+  if (!expected || expected.length < MIN_TOKEN_LENGTH) return false;
+  const header = request.headers.get("authorization") ?? "";
+  const match = /^Bearer (.+)$/.exec(header);
+  if (!match) return false;
+  const a = Buffer.from(match[1]);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function readQueues(): QueueCounts {
+function readQueues() {
   const row = getDb()
     .prepare(
       `SELECT
@@ -31,45 +50,50 @@ function readQueues(): QueueCounts {
   };
 }
 
-function readLastTicks(): Map<string, string> {
-  const rows = getDb()
-    .prepare("SELECT key, value FROM app_state WHERE key IN (?, ?, ?)")
-    .all(SUBMISSION_LAST_TICK_KEY, TRACKING_LAST_TICK_KEY, "meta_last_tick") as Array<{
-    key: string;
-    value: string;
-  }>;
-  return new Map(rows.map((row) => [row.key, row.value]));
-}
-
-export function GET(): NextResponse {
+export function GET(request: Request): NextResponse {
+  const headers = { "Cache-Control": "no-store" };
   try {
-    const db = getDb();
-    db.prepare("SELECT 1").get();
-    const workers = workerHealth();
-    const ticks = readLastTicks();
-    return NextResponse.json({
-      status: "ok",
-      db: true,
-      workers: {
-        submission: {
-          enabled: workers.submission.enabled,
-          lastTickAt: ticks.get(SUBMISSION_LAST_TICK_KEY) ?? undefined,
-        },
-        tracking: {
-          enabled: workers.tracking.enabled,
-          lastTickAt: ticks.get(TRACKING_LAST_TICK_KEY) ?? undefined,
-        },
-        meta: {
-          enabled: workers.meta.enabled,
-          lastTickAt: ticks.get("meta_last_tick") ?? undefined,
-        },
-      },
-      queues: readQueues(),
-    });
-  } catch {
+    getDb().prepare("SELECT 1").get();
+    const enabled = workerHealth();
+    const intervals: Record<WorkerName, number> = {
+      submission: submissionIntervalMs(),
+      tracking: pollIntervalMs(),
+      meta: META_INTERVAL_MS,
+      tiktok: TIKTOK_INTERVAL_MS,
+    };
+    const now = Date.now();
+    const workers = {} as Record<
+      WorkerName,
+      ReturnType<typeof readWorkerStatus> & { enabled: boolean; stale: boolean }
+    >;
+    for (const name of Object.keys(intervals) as WorkerName[]) {
+      const status = readWorkerStatus(name);
+      const isEnabled = enabled[name].enabled;
+      workers[name] = {
+        enabled: isEnabled,
+        ...status,
+        stale: isWorkerStale(isEnabled, status.lastTickAt, intervals[name], now),
+      };
+    }
+    const status = overallStatus(Object.values(workers));
+    const time = new Date(now).toISOString();
+    if (!detailsAuthorized(request)) {
+      return NextResponse.json({ status, time }, { headers });
+    }
     return NextResponse.json(
-      { status: "error", db: false, workers: null, queues: null },
-      { status: 503 },
+      {
+        status,
+        time,
+        db: true,
+        provider: deliveryProviderName(),
+        warnings: runtimeEnvWarnings(),
+        lease: workerLeaseStatus(),
+        workers,
+        queues: readQueues(),
+      },
+      { headers },
     );
+  } catch {
+    return NextResponse.json({ status: "down", time: new Date().toISOString() }, { status: 503, headers });
   }
 }

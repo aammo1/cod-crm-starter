@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import { z } from "@/lib/validation";
+import { ORDER_ATTRIBUTION_KEYS, orderAttributionFields } from "@/lib/storefront-api-schemas";
 import type Database from "better-sqlite3";
 import type {
   CommerceProduct, CommerceVariant, ProductPack, CommerceOrderItem, CommerceTotals,
   StorefrontCheckoutReceiptSnapshot, StorefrontCheckoutResponse, StorefrontUpsellResponse,
 } from "@/lib/commerce-types";
+import { pickAssignee } from "@/lib/services/assignment";
 import { getDb, insertStorefrontOrder, closePendingStorefrontUpsell, type StoredStorefrontOffer } from "@/lib/db";
 import { applyPacks } from "@/lib/pack-pricing";
 import { normalizeMaPhone } from "@/lib/phone";
@@ -36,6 +38,7 @@ export interface StorefrontCatalogPort {
 
 const idSchema = z.string().trim().min(1).max(200);
 const attributionSchema = z.object({
+  ...orderAttributionFields,
   eventId: z.string().uuid(),
   sourceUrl: z.string().url().max(2048).refine((s) => /^https?:\/\//.test(s)),
   fbp: z.string().regex(/^fb\.\d+\.\d+\.[\w-]+$/).max(256).optional(),
@@ -79,6 +82,8 @@ export function canonicalCheckout(input: unknown) {
     ...(value.meta.ttclid ? { ttclid: value.meta.ttclid } : {}),
     ...(value.meta.clientIpAddress ? { clientIpAddress: value.meta.clientIpAddress } : {}),
     ...(value.meta.clientUserAgent ? { clientUserAgent: value.meta.clientUserAgent } : {}),
+    ...(Object.fromEntries(ORDER_ATTRIBUTION_KEYS.filter((k) => value.meta![k]).map((k) => [k, value.meta![k]])) as
+      Partial<Record<(typeof ORDER_ATTRIBUTION_KEYS)[number], string>>),
   } : undefined;
   return {
     customer: { name: value.customer.name, phone },
@@ -191,7 +196,11 @@ export function createStorefrontOrderService(deps: StorefrontOrderDependencies) 
         insertStorefrontOrder(db, { id, customerName: request.customer.name,
           customerPhone: request.customer.phone, items, offer, nonce, verifier: orderTokenVerifier(token),
           subtotal, shipping: amounts.shipping, total: amounts.total, now: new Date(now).toISOString(),
-          ...(discount > 0 ? { discount, packSnapshot: applications } : {}) });
+          ...(discount > 0 ? { discount, packSnapshot: applications } : {}),
+          ...(request.meta ? { attribution: request.meta } : {}) });
+        // Same transaction as the insert: cursor advance rolls back with the order.
+        const assignee = pickAssignee(db, settings.assignmentMode);
+        if (assignee) db.prepare("UPDATE orders SET assigned_to = ? WHERE id = ?").run(assignee, id);
         // Every checkout needs historical shipping rules, including disabled or
         // unavailable upsells. Share manual creation's per-order snapshot contract
         // and write on this connection so order + rules + receipt commit together.

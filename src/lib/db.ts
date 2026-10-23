@@ -33,19 +33,28 @@ export function insertStorefrontOrder(db: Db, input: {
   offer: StoredStorefrontOffer | null; nonce: string; verifier: string;
   subtotal: number; shipping: number; total: number; now: string;
   discount?: number; packSnapshot?: unknown[];
+  /** First-touch campaign fields (wire names); persisted with the order, never trusted for pricing. */
+  attribution?: {
+    utm_source?: string; utm_medium?: string; utm_campaign?: string; utm_content?: string; utm_term?: string;
+    referrerHost?: string; landingPath?: string; clickIdType?: string;
+  };
 }): void {
   if (!db.inTransaction) throw new Error("Une transaction est requise.");
+  const a = input.attribution ?? {};
   db.prepare(`INSERT INTO orders (id, customer_name, customer_phone, items_json,
     upsell_offer_json, upsell_status, subtotal, shipping, total, currency,
     created_at, updated_at, upsell_offer_id, upsell_expires_at, order_token_nonce, order_token_verifier,
-    discount_type, discount_value, discount_amount, pack_snapshot_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'MAD', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    discount_type, discount_value, discount_amount, pack_snapshot_json,
+    utm_source, utm_medium, utm_campaign, utm_content, utm_term, referrer_host, landing_path, click_id_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'MAD', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(input.id, input.customerName, input.customerPhone, JSON.stringify(input.items),
       input.offer ? JSON.stringify(input.offer) : null, input.offer ? "pending" : "closed",
       input.subtotal, input.shipping, input.total, input.now, input.now,
       input.offer?.offerId ?? null, input.offer?.expiresAt ?? null, input.nonce, input.verifier,
       input.discount ? "fixed" : "none", input.discount ?? 0, input.discount ?? 0,
-      input.packSnapshot ? JSON.stringify(input.packSnapshot) : null);
+      input.packSnapshot ? JSON.stringify(input.packSnapshot) : null,
+      a.utm_source ?? null, a.utm_medium ?? null, a.utm_campaign ?? null, a.utm_content ?? null,
+      a.utm_term ?? null, a.referrerHost ?? null, a.landingPath ?? null, a.clickIdType ?? null);
 }
 
 /** Confirmation closes the offer and freezes Meta in its reservation transaction. */

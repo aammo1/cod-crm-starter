@@ -7,6 +7,8 @@ export const STORE_TIMEZONE = "Africa/Casablanca" as const;
 /** Stable identity: changing the store's display name never moves stock. */
 export const MAIN_INVENTORY_LOCATION_KEY = "MAIN" as const;
 
+export const ASSIGNMENT_MODES = ["manual", "round_robin", "least_loaded"] as const;
+
 const madAmountSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 
 /** Complete persisted object. Unknown fields (including secrets) are rejected. */
@@ -17,6 +19,7 @@ export const storeSettingsSchema = z.object({
   upsellEnabled: z.boolean(),
   upsellWindowSeconds: z.number().int().min(1).max(300),
   upsellDiscountPercent: z.number().int().min(1).max(90),
+  assignmentMode: z.enum(ASSIGNMENT_MODES).default("manual"),
 }).strict();
 
 /** A partial update is merged with the current settings inside one transaction. */
@@ -32,6 +35,7 @@ export const DEFAULT_STORE_SETTINGS: Readonly<StoreSettings> = Object.freeze({
   upsellEnabled: true,
   upsellWindowSeconds: 20,
   upsellDiscountPercent: 30,
+  assignmentMode: "manual",
 });
 
 /** Deliberate allowlist for catalog clients; no upsell policy or private fields. */

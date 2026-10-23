@@ -5,7 +5,8 @@ import { getProvider } from "@/lib/shipping";
 import { buildCreateParcelInput } from "@/lib/shipping/parcel-payload";
 import { redactText } from "@/lib/shipping/redact";
 import { getSubmission, type SubmissionStatus } from "@/lib/services/submissions";
-import { SUBMISSION_LAST_TICK_KEY, setAppState } from "@/lib/services/app-state";
+import { log } from "@/lib/log";
+import { recordWorkerError, recordWorkerTick } from "@/lib/services/worker-status";
 import type { DeliveryProvider } from "@/lib/shipping/provider";
 
 const BATCH_SIZE = 5;
@@ -14,7 +15,7 @@ const MIN_INTERVAL_SEC = 5;
 const REQUEUE_DELAY_MS = 60_000;
 const STALE_SUBMITTING_MS = 5 * 60_000;
 
-function intervalMs(): number {
+export function submissionIntervalMs(): number {
   const raw = Number(process.env.OZON_SUBMIT_INTERVAL_SEC);
   const sec = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_INTERVAL_SEC;
   return Math.max(sec, MIN_INTERVAL_SEC) * 1000;
@@ -32,13 +33,13 @@ function setStatus(
     rawResponseJson?: string | null;
     lastError?: string | null;
   },
-): void {
+): boolean {
   const now = nowIso();
-  getDb()
+  const result = getDb()
     .prepare(
       `UPDATE courier_submissions
        SET status = ?, tracking_number = ?, raw_response_json = ?, last_error = ?, next_retry_at = ?, updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND status = 'submitting'`,
     )
     .run(
       status,
@@ -49,6 +50,12 @@ function setStatus(
       now,
       id,
     );
+  if (result.changes === 0) {
+    const tracking = fields.trackingNumber ? ` (suivi ${redactText(fields.trackingNumber)})` : "";
+    log.warn("submission.late_result_ignored", { submissionId: id, tracking: tracking.trim() || undefined });
+    return false;
+  }
+  return true;
 }
 
 /** Crash mid-flight means the request outcome is unknowable — never re-create. */
@@ -124,9 +131,7 @@ async function processOne(provider: DeliveryProvider, id: string): Promise<void>
       }
     } catch (settleErr) {
       // Left 'submitting': the stale sweep moves it to needs_review.
-      console.error(
-        `[submission] statut non enregistré pour ${id} : ${redactText(settleErr instanceof Error ? settleErr.message : String(settleErr))}`,
-      );
+      log.error("submission.status_not_recorded", { submissionId: id, error: settleErr });
     }
   }
 }
@@ -177,7 +182,7 @@ async function drain(provider: DeliveryProvider): Promise<void> {
     // Leave jobs queued: failing them would demand portal evidence for a
     // request that was never sent.
     if (!warnedUnconfigured) {
-      console.error("[submission] transporteur non configuré — file en attente, aucune soumission");
+      log.error("submission.provider_not_configured", { detail: "file en attente, aucune soumission" });
       warnedUnconfigured = true;
     }
     return;
@@ -195,40 +200,31 @@ async function drain(provider: DeliveryProvider): Promise<void> {
   }
 }
 
-/** /api/health liveness signal — a failed write must never break the tick. */
-function heartbeat(): void {
-  try {
-    setAppState(SUBMISSION_LAST_TICK_KEY, new Date().toISOString());
-  } catch {
-    // Health signal only.
-  }
-}
-
 export function startSubmissionWorker(): void {
   const g = globalThis as { __crmSubmissionWorker?: NodeJS.Timeout };
   if (g.__crmSubmissionWorker) return;
 
   if (process.env.DELIVERY_PROVIDER === "mock") {
-    console.log("[submission] MOCK provider actif — aucun appel réel à Ozon");
+    log.info("submission.mock_provider", { detail: "aucun appel réel à Ozon" });
   }
 
   try {
     resolveStaleSubmitting();
   } catch (err) {
     // The per-tick sweep (resolveOldSubmitting) catches these rows later.
-    console.error(
-      `[submission] reprise au démarrage en échec : ${redactText(err instanceof Error ? err.message : String(err))}`,
-    );
+    log.error("submission.startup_recovery_failed", { error: err });
+    recordWorkerError("submission", err);
   }
   const provider = getProvider();
   const tick = () => {
-    heartbeat();
-    drainSubmissions(provider).catch((err: unknown) => {
-      console.error(
-        `[submission] tick en échec : ${redactText(err instanceof Error ? err.message : String(err))}`,
-      );
-    });
+    drainSubmissions(provider).then(
+      () => recordWorkerTick("submission"),
+      (err: unknown) => {
+        log.error("submission.tick_failed", { error: err });
+        recordWorkerError("submission", err);
+      },
+    );
   };
   void tick();
-  g.__crmSubmissionWorker = setInterval(tick, intervalMs());
+  g.__crmSubmissionWorker = setInterval(tick, submissionIntervalMs());
 }

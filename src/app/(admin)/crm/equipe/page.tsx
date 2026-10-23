@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { requireAdmin } from "@/lib/auth-guards";
-import { listTeamAgents } from "@/lib/services/team";
+import { listOtherAdmins, listTeamAgents } from "@/lib/services/team";
 import { TeamWorkspace } from "@/components/crm/team-workspace";
 
 export const runtime = "nodejs";
@@ -15,8 +15,9 @@ export const metadata: Metadata = {
 };
 
 export default async function TeamPage() {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const agents = listTeamAgents();
+  const otherAdmins = listOtherAdmins(admin.id);
 
-  return <TeamWorkspace initialAgents={agents} />;
+  return <TeamWorkspace initialAgents={agents} otherAdmins={otherAdmins} />;
 }

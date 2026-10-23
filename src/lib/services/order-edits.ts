@@ -2,11 +2,14 @@ import { createHash } from "node:crypto";
 import { nanoid } from "nanoid";
 import { getDb, hasOrderFulfillmentHistory } from "@/lib/db";
 import type { CommerceOrderItem as OrderItem } from "@/lib/commerce-types";
-import { orderEditSchema, type DiscountType, type ShippingMode } from "@/lib/order-edit-schema";
+import { orderEditSchema, type DiscountMode, type DiscountType, type ShippingMode } from "@/lib/order-edit-schema";
 import { listProducts, getVariantById } from "@/lib/services/catalog";
 import { getCrmOrder as getOrder } from "@/lib/services/orders";
-import { MissingOrderShippingRulesError, orderLineSnapshot, orderShippingRules, replaceOrderVariant } from "@/lib/services/order-lines";
-import { shippingFor } from "@/lib/pricing";
+import { MissingOrderShippingRulesError, orderLineSnapshot, orderRulesKey, orderShippingRules, replaceOrderVariant } from "@/lib/services/order-lines";
+import { applyPacks } from "@/lib/pack-pricing";
+import { getActivePacksFor } from "@/lib/services/packs";
+import { shippingFor, type ShippingRules } from "@/lib/pricing";
+import { getCityTariff } from "@/lib/services/city-tariffs";
 import { availableFor } from "@/lib/services/inventory";
 
 export class OrderEditError extends Error {
@@ -22,6 +25,7 @@ interface Adjustment {
   discount_amount: number;
   shipping_mode: ShippingMode;
   archived_at: string | null;
+  pack_snapshot_json: string | null;
 }
 
 export interface OrderEditSnapshot {
@@ -34,6 +38,41 @@ export interface OrderEditSnapshot {
   discountValue: number;
   discountAmount: number;
   shippingMode: ShippingMode;
+  /** Absent on history rows written before discount modes existed. */
+  discountMode?: DiscountMode;
+  /** Present only when an agent explicitly applied a city fee override in this edit. */
+  cityFeeMad?: number;
+}
+
+/** Shipping rules snapshot as persisted in app_state; cityFee records an applied override and the base rules it replaced. */
+interface StoredRules extends ShippingRules {
+  cityFee?: { cityId: number; feeMad: number; ignoresFreeThreshold: boolean; baseFeeMad: number; baseThresholdMad: number };
+}
+
+export interface CityFeeProposal {
+  cityId: number; cityName: string; feeMad: number; baseFeeMad: number;
+  ignoresFreeThreshold: boolean; baseThresholdMad: number; applied: boolean;
+}
+
+function baseRules(rules: StoredRules): ShippingRules {
+  return rules.cityFee ? { shippingFeeMad: rules.cityFee.baseFeeMad, freeShippingThresholdMad: rules.cityFee.baseThresholdMad } : rules;
+}
+
+/** The order city's customer fee override, or null. Read server-side from city_tariffs; never client-supplied. */
+export function orderCityFeeProposal(orderId: string): CityFeeProposal | null {
+  const row = getDb().prepare("SELECT city_id FROM orders WHERE id = ?").get(orderId) as { city_id: number | null } | undefined;
+  if (!row || row.city_id === null) return null;
+  const tariff = getCityTariff(row.city_id);
+  if (!tariff || tariff.customerFeeOverride === null) return null;
+  let rules: StoredRules;
+  try { rules = orderShippingRules(orderId) as StoredRules; } catch { return null; }
+  const base = baseRules(rules);
+  return {
+    cityId: tariff.cityId, cityName: tariff.cityName, feeMad: tariff.customerFeeOverride, baseFeeMad: base.shippingFeeMad,
+    ignoresFreeThreshold: tariff.overrideIgnoresFreeThreshold, baseThresholdMad: base.freeShippingThresholdMad,
+    applied: rules.cityFee?.cityId === tariff.cityId && rules.cityFee.feeMad === tariff.customerFeeOverride
+      && rules.cityFee.ignoresFreeThreshold === tariff.overrideIgnoresFreeThreshold,
+  };
 }
 
 export interface OrderEditHistory {
@@ -55,6 +94,7 @@ function readState(orderId: string) {
     subtotal: order.subtotal, shipping: order.shipping, total: order.total,
     discountType: raw.discount_type, discountValue: raw.discount_value,
     discountAmount: raw.discount_amount, shippingMode: raw.shipping_mode,
+    discountMode: raw.pack_snapshot_json ? "pack" : "manual",
   };
   const lastEdit = getDb().prepare("SELECT id FROM order_edits WHERE order_id = ? ORDER BY rowid DESC LIMIT 1")
     .get(orderId) as { id: string } | undefined;
@@ -73,7 +113,7 @@ export function getOrderEditState(orderId: string) {
 export function orderEditOptions() {
   return listProducts().filter((p) => p.active).flatMap((p) => p.variants.filter((v) => v.active).map((v) => ({
     variantId: v.id, productId: p.id, name: p.name, sku: v.sku,
-    label: v.label, options: v.options, price: p.price, available: v.available,
+    label: v.label, options: v.options, price: p.price, available: v.available, packs: p.packs ?? [],
   })));
 }
 
@@ -99,6 +139,10 @@ export function editOrder(orderId: string, body: unknown, actor: { id: string; n
     const upsellItems: OrderItem[] = [];
     const quantities = new Map<string, number>();
     const usedUpsells = new Set<number>();
+    // Untouched variants keep the price the customer was quoted, whatever the catalog says now.
+    const originalPrices = new Map<string, number>();
+    for (const item of before.snapshot.items) if (!originalPrices.has(item.variant_id)) originalPrices.set(item.variant_id, item.unit_price);
+    const discountMode: DiscountMode = input.discountMode ?? before.snapshot.discountMode ?? "manual";
     const beforeQty = new Map<string, number>();
     for (const item of [...before.snapshot.items, ...before.snapshot.upsellItems]) {
       beforeQty.set(item.variant_id, (beforeQty.get(item.variant_id) ?? 0) + item.quantity);
@@ -106,7 +150,7 @@ export function editOrder(orderId: string, body: unknown, actor: { id: string; n
     for (const line of input.lines) {
       const variant = getVariantById(line.variantId);
       if (!variant || !variant.active || !variant.productActive) throw new OrderEditError(400, "Un produit ou une variante n'est plus disponible.");
-      let unitPrice = variant.price;
+      let unitPrice = line.upsellIndex === undefined ? originalPrices.get(line.variantId) ?? variant.price : variant.price;
       if (line.upsellIndex !== undefined) {
         const original = before.snapshot.upsellItems[line.upsellIndex];
         if (!original || usedUpsells.has(line.upsellIndex) || original.product_id !== variant.productId || line.qty > original.quantity) {
@@ -128,34 +172,69 @@ export function editOrder(orderId: string, body: unknown, actor: { id: string; n
       (line.upsellIndex === undefined ? items : upsellItems).push(item);
     }
     const regularSubtotal = items.reduce((sum, i) => sum + i.line_total, 0);
-    if (input.discountType === "fixed" && input.discountValue > regularSubtotal) {
+    let discountType: DiscountType = input.discountType;
+    let discountValue = input.discountValue;
+    let packSnapshot: string | null = null;
+    let discountAmount = 0;
+    if (discountMode === "pack") {
+      // Packs come only from the persisted table; any client discount is ignored.
+      const productIds = [...new Set(items.map((i) => i.product_id))];
+      const { discount, applications } = applyPacks(
+        items.map((i) => ({ productId: i.product_id, qty: i.quantity, unitPrice: i.unit_price })),
+        getActivePacksFor(productIds, db),
+      );
+      discountType = discount > 0 ? "fixed" : "none";
+      discountValue = discount; discountAmount = discount;
+      packSnapshot = discount > 0 ? JSON.stringify(applications) : null;
+    } else if (input.discountType === "fixed" && input.discountValue > regularSubtotal) {
       throw new OrderEditError(400, "La remise ne peut pas dépasser le montant des articles hors upsell.");
     }
     const subtotal = regularSubtotal + upsellItems.reduce((sum, i) => sum + i.line_total, 0);
-    const discountAmount = input.discountType === "percent" ? Math.round(regularSubtotal * input.discountValue / 100)
-      : input.discountType === "fixed" ? input.discountValue : 0;
-    const rules = (() => {
-      try { return orderShippingRules(orderId); }
+    if (discountMode === "manual") {
+      discountAmount = input.discountType === "percent" ? Math.round(regularSubtotal * input.discountValue / 100)
+        : input.discountType === "fixed" ? input.discountValue : 0;
+    }
+    const storedRules = (() => {
+      try { return orderShippingRules(orderId) as StoredRules; }
       catch (error) {
         if (error instanceof MissingOrderShippingRulesError) throw new OrderEditError(409, error.message);
         throw error;
       }
     })();
+    let rules: ShippingRules = storedRules;
+    let rulesToPersist: StoredRules | null = null;
+    let cityFeeMad: number | undefined;
+    if (input.applyCityFee) {
+      // Explicit agent action only; the fee comes from the server-side tariff.
+      const proposal = orderCityFeeProposal(orderId);
+      if (!proposal) throw new OrderEditError(400, "Aucun frais spécifique pour la ville de cette commande.");
+      const base = baseRules(storedRules);
+      rules = { shippingFeeMad: proposal.feeMad,
+        freeShippingThresholdMad: proposal.ignoresFreeThreshold ? Number.MAX_SAFE_INTEGER : base.freeShippingThresholdMad };
+      rulesToPersist = { ...rules, cityFee: { cityId: proposal.cityId, feeMad: proposal.feeMad,
+        ignoresFreeThreshold: proposal.ignoresFreeThreshold, baseFeeMad: base.shippingFeeMad, baseThresholdMad: base.freeShippingThresholdMad } };
+      cityFeeMad = proposal.feeMad;
+    }
     const shipping = input.shippingMode === "free" ? 0 : input.shippingMode === "paid" ? rules.shippingFeeMad
       : shippingFor(subtotal - discountAmount, rules);
     const totals = { subtotal, discountAmount, shipping, total: subtotal - discountAmount + shipping };
-    const after: OrderEditSnapshot = { items, upsellItems, ...totals, discountType: input.discountType,
-      discountValue: input.discountValue, shippingMode: input.shippingMode };
+    const after: OrderEditSnapshot = { items, upsellItems, ...totals, discountType,
+      discountValue, shippingMode: input.shippingMode, discountMode: packSnapshot ? "pack" : "manual",
+      ...(cityFeeMad !== undefined ? { cityFeeMad } : {}) };
     const now = new Date().toISOString();
     // Close together with the final lines/totals so the Meta trigger freezes
     // this audited revision, never the pre-edit pending order.
     db.prepare(`UPDATE orders SET items_json = ?, upsell_items_json = ?, upsell_status = ?,
       subtotal = ?, shipping = ?, total = ?, discount_type = ?, discount_value = ?, discount_amount = ?,
-      shipping_mode = ?, updated_at = ? WHERE id = ?`).run(
+      shipping_mode = ?, pack_snapshot_json = ?, updated_at = ? WHERE id = ?`).run(
       JSON.stringify(items), upsellItems.length ? JSON.stringify(upsellItems) : null,
       upsellItems.length ? "accepted" : "declined", totals.subtotal, totals.shipping, totals.total,
-      input.discountType, input.discountValue, totals.discountAmount, input.shippingMode, now, orderId,
+      discountType, discountValue, totals.discountAmount, input.shippingMode, packSnapshot, now, orderId,
     );
+    if (rulesToPersist) {
+      db.prepare(`INSERT INTO app_state (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(orderRulesKey(orderId), JSON.stringify(rulesToPersist));
+    }
     db.prepare(`INSERT INTO order_edits (id, order_id, actor_id, actor_name, reason, before_json, after_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(`oed_${nanoid(12)}`, orderId, actor.id, actor.name ?? actor.id,
       input.reason, JSON.stringify(before.snapshot), JSON.stringify(after), now);

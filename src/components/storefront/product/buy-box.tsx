@@ -192,7 +192,7 @@ export function BuyBox({ product, labels }: { product: BuyBoxProduct; labels: Bu
           onClick={orderNow}
           onPointerEnter={prefetchFunnel}
           onFocus={prefetchFunnel}
-          className="h-12 rounded-store bg-store-accent px-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-12 rounded-store bg-store-accent px-4 font-semibold text-store-accent-fg disabled:cursor-not-allowed disabled:opacity-50"
         >
           {soldOut ? labels.soldOut : labels.orderNow}
         </button>

@@ -915,6 +915,36 @@ export function receiveReturnLines(
   });
 }
 
+/**
+ * Closes a received return that carries no units (empty parcel / lost by the
+ * courier). Writes NO stock balance and NO ledger movement; it only finalizes
+ * the returns row as inspected with zero quantities. Idempotent for an already
+ * inspected return with zero units; otherwise an inspected return conflicts.
+ */
+export function closeReturnWithoutUnits(
+  submissionId: string,
+  orderId: string,
+  actor: string,
+): { returnId: string; alreadyClosed: boolean } {
+  let result = { returnId: "", alreadyClosed: false };
+  withTransaction(() => {
+    const s = stmts();
+    const row = s.selectReturnsBySubmission.get({ submissionId });
+    if (!row || row.order_id !== orderId || row.status === "returning") {
+      throw new InventoryConflictError("Retour introuvable ou colis non reçu pour cette commande");
+    }
+    if (row.status === "inspected") {
+      const units = getDb().prepare("SELECT COUNT(*) n FROM return_lines WHERE return_id = ?").get(row.id) as { n: number };
+      if (units.n > 0) throw new InventoryConflictError("Retour déjà inspecté avec des articles");
+      result = { returnId: row.id, alreadyClosed: true };
+      return;
+    }
+    s.updateReturnInspected.run({ id: row.id, sellableQty: 0, damagedQty: 0, actor, now: nowIso() });
+    result = { returnId: row.id, alreadyClosed: false };
+  });
+  return result;
+}
+
 export function adjustStock(
   variantId: string,
   change: AdjustChange,

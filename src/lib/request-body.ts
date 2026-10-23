@@ -49,3 +49,12 @@ export async function readLimitedFormData(request: Request, limit: number): Prom
     return await new Response(new Uint8Array(bytes).buffer, { headers: { "Content-Type": request.headers.get("content-type") ?? "" } }).formData();
   } catch { throw new RequestBodyError(400); }
 }
+
+/** Like readLimitedJson but returns null for malformed bodies; oversized bodies still throw 413. */
+export async function readLimitedJsonOrNull(request: Request, limit: number): Promise<unknown> {
+  try { return await readLimitedJson(request, limit); }
+  catch (error) {
+    if (error instanceof RequestBodyError && error.status === 413) throw error;
+    return null;
+  }
+}

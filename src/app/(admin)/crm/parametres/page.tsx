@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
+import { BlocklistManager } from "@/components/crm/blocklist-manager";
+import { CityTariffsManager } from "@/components/crm/city-tariffs-manager";
 import { StoreSettingsForm } from "@/components/crm/store-settings-form";
 import { requireAdmin } from "@/lib/auth-guards";
+import { listBlockedPhones } from "@/lib/services/customers";
+import { defaultCourierCost, listCityTariffs } from "@/lib/services/city-tariffs";
 import { getStoreSettings } from "@/lib/services/store-settings";
 
 export const runtime = "nodejs";
@@ -24,6 +28,21 @@ export default async function SettingsPage() {
         </p>
       </header>
       <StoreSettingsForm initialSettings={settings} />
+      <section className="rounded-xl border border-border bg-card p-5 text-card-foreground">
+        <h2 className="mb-1 text-lg font-semibold">Numéros bloqués</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Les commandes de ces numéros restent acceptées mais sont signalées aux agents.
+        </p>
+        <BlocklistManager initialBlocked={listBlockedPhones()} />
+      </section>
+      <section className="rounded-xl border border-border bg-card p-5 text-card-foreground">
+        <h2 className="mb-1 text-lg font-semibold">Tarifs par ville</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Coût livreur (pour le calcul du profit, jamais visible des agents ni de la boutique) et frais client
+          spécifiques, proposés aux agents lors de la modification d’une commande.
+        </p>
+        <CityTariffsManager initialTariffs={listCityTariffs()} initialDefaultCost={defaultCourierCost()} />
+      </section>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import { NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { readLimitedFormData, RequestBodyError } from "@/lib/request-body";
@@ -64,12 +65,21 @@ export async function POST(request: Request): Promise<NextResponse> {
           { status: 400 }
         );
       }
+      let output: Buffer;
+      try {
+        const image = sharp(bytes, { failOn: "error", limitInputPixels: 40_000_000 }).rotate();
+        output = await (file.type === "image/png" ? image.png()
+          : file.type === "image/webp" ? image.webp({ quality: 85 })
+          : image.jpeg({ quality: 85, mozjpeg: true })).toBuffer();
+      } catch {
+        return NextResponse.json({ error: "Image illisible." }, { status: 400 });
+      }
       const ext = extensionForContentType(file.type) as string;
       const name = `${nanoid(12)}-${sanitizeOriginalName(file.name)}.${ext}`;
       if (!isSafeStoredName(name)) {
         throw new Error("generated upload name failed safety check");
       }
-      await writeFile(path.join(dir, name), bytes);
+      await writeFile(path.join(dir, name), output);
       urls.push(`/api/media/${name}`);
     }
   } catch {

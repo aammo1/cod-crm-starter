@@ -1,6 +1,6 @@
-import { redactText } from "@/lib/shipping/redact";
 import { pollIntervalMs, pollOnce } from "@/lib/services/tracking";
-import { TRACKING_LAST_TICK_KEY, setAppState } from "@/lib/services/app-state";
+import { log } from "@/lib/log";
+import { recordWorkerError, recordWorkerTick } from "@/lib/services/worker-status";
 
 /**
  * Tracking poller (task-14): one pass on boot, then every
@@ -16,27 +16,21 @@ export function startTrackingWorker(): void {
   if (g.__crmTrackingWorker) return;
 
   if (process.env.DELIVERY_PROVIDER === "mock") {
-    console.log("[tracking] MOCK provider actif — aucun appel réel à Ozon");
+    log.info("tracking.mock_provider", { detail: "aucun appel réel à Ozon" });
   }
 
   const tick = async (): Promise<void> => {
     if (g.__crmTrackingRunning) {
-      console.warn("[tracking] sondage précédent encore en cours — tick ignoré");
+      log.warn("tracking.tick_skipped", { detail: "sondage précédent encore en cours" });
       return;
     }
     g.__crmTrackingRunning = true;
     try {
-      // /api/health liveness signal — a failed write must never break the poll.
-      try {
-        setAppState(TRACKING_LAST_TICK_KEY, new Date().toISOString());
-      } catch {
-        // Health signal only.
-      }
       await pollOnce();
+      recordWorkerTick("tracking");
     } catch (err) {
-      console.error(
-        `[tracking] échec du sondage : ${redactText(err instanceof Error ? err.message : String(err))}`,
-      );
+      log.error("tracking.poll_failed", { error: err });
+      recordWorkerError("tracking", err);
     } finally {
       g.__crmTrackingRunning = false;
     }

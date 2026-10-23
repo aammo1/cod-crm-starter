@@ -14,5 +14,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...catalog.map((p) => `/produit/${p.slug}`),
     ...(storeConfig.landing.index ? catalog.filter((p) => p.landingEnabled).map((p) => `/l/${p.slug}`) : []),
   ];
+  // The storefront DTO has no updatedAt, so lastModified is intentionally omitted.
   return urls.map((u) => ({ url: u === "/" ? `${base}/` : `${base}${u}` }));
 }

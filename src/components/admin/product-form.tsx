@@ -16,13 +16,13 @@ import styles from "./catalog-form.module.css";
 
 const slugify = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
-export function ProductForm({ product, otherProducts }: { product: CommerceProduct | null; otherProducts: { id: string; name: string }[] }) {
+export function ProductForm({ product, otherProducts, variantCosts = {} }: { product: CommerceProduct | null; variantCosts?: Record<string, number | null>; otherProducts: { id: string; name: string }[] }) {
   const router = useRouter();
   const [fields, setFields] = useState({ name: product?.name ?? "", slug: product?.slug ?? "", category: product?.category ?? "", price: product ? String(product.price) : "", description: product?.description ?? "", story: product?.story ?? "", materials: product?.materials?.join(", ") ?? "", badge: product?.badge ?? "", upsellRef: product?.upsellRef ?? "", isBestSeller: product?.isBestSeller ?? false });
   const [slugTouched, setSlugTouched] = useState(!!product);
   const [images, setImages] = useState(product?.images ?? []);
   const [definitions, setDefinitions] = useState<ProductOptionDefinition[]>(product?.optionDefinitions ?? []);
-  const [variants, setVariants] = useState<VariantDraft[]>(() => product ? product.variants.filter(v => v.active).map(v => ({ ...v, key: v.id })) : [{ key: "standard", options: [], sku: "", label: "Standard", images: [], active: true }]);
+  const [variants, setVariants] = useState<VariantDraft[]>(() => product ? product.variants.filter(v => v.active).map(v => ({ ...v, key: v.id, costPrice: variantCosts[v.id] ?? null })) : [{ key: "standard", options: [], sku: "", label: "Standard", images: [], active: true }]);
   const [withStock, setWithStock] = useState(false);
   const [stock, setStock] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
@@ -55,7 +55,7 @@ export function ProductForm({ product, otherProducts }: { product: CommerceProdu
         // a variant-specific gallery persisted forever.
         const original = product?.variants.find(row => row.id === v.id);
         const unchangedGallery = original && JSON.stringify(original.images) === JSON.stringify(v.images);
-        return { ...(v.id ? { id: v.id } : {}), ...(v.sku ? { sku: v.sku } : {}), ...(v.label.trim() ? { label: v.label } : {}), options: v.options, ...(!unchangedGallery ? { images: v.images } : {}), active: v.active };
+        return { ...(v.id ? { id: v.id } : {}), ...(v.sku ? { sku: v.sku } : {}), ...(v.label.trim() ? { label: v.label } : {}), options: v.options, ...(!unchangedGallery ? { images: v.images } : {}), active: v.active, ...(v.costPrice !== undefined ? { costPrice: v.costPrice } : {}) };
       }), ...(!product && withStock ? { initialStock } : {}) };
       body = JSON.stringify(payload);
       if (!product) {

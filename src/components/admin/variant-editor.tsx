@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import type { CommerceVariant, ProductOptionDefinition, VariantOption } from "@/lib/commerce-types";
 import { validateOptionDefinitions, variantOptionsKey, variantOptionsLabel } from "@/lib/variant-options";
 
-export interface VariantDraft { key: string; id?: string; sku: string; label: string; options: VariantOption[]; images: string[]; active: boolean }
+export interface VariantDraft { key: string; id?: string; sku: string; label: string; options: VariantOption[]; images: string[]; active: boolean; costPrice?: number | null }
 
 export function ImageGallery({ id, images, onChange, onBusy }: { id: string; images: string[]; onChange: (images: string[]) => void; onBusy: (delta: number) => void }) {
   const [error, setError] = useState("");
@@ -73,6 +73,7 @@ export function VariantEditor({ definitions, onDefinitions, variants, onChange, 
       <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">{variantOptionsLabel(variant.options)}</h3><label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={!definitions.length} checked={variant.active} onChange={e => patch(index, { active: e.target.checked })} />Disponible au catalogue</label></div>
       <p className="break-all font-mono text-xs text-muted-foreground">ID : {variant.id ?? 'Attribué à la création'}</p>
       <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor={`sku-${variant.key}`}>SKU {variant.id ? '(immuable)' : '(facultatif)'}</Label><Input id={`sku-${variant.key}`} readOnly={!!variant.id} value={variant.sku} placeholder="Généré automatiquement" onChange={e => patch(index, { sku: e.target.value })} /></div><div className="space-y-1.5"><Label htmlFor={`label-${variant.key}`}>Libellé</Label><Input id={`label-${variant.key}`} value={variant.label} onChange={e => patch(index, { label: e.target.value })} /></div>
+      <div className="space-y-1.5"><Label htmlFor={`cost-${variant.key}`}>Coût d’achat (MAD)</Label><Input id={`cost-${variant.key}`} type="number" inputMode="numeric" min={0} max={1000000} step={1} value={variant.costPrice ?? ''} placeholder="Facultatif" onChange={e => patch(index, { costPrice: e.target.value === '' ? null : Number(e.target.value) })} /></div>
       {definitions.map((axis, i) => <div key={i} className="space-y-1.5"><Label htmlFor={`option-${variant.key}-${i}`}>{axis.name || `Option ${i + 1}`}</Label><select id={`option-${variant.key}-${i}`} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={variant.options[i]?.value ?? ''} onChange={e => { const options = definitions.map((a, j) => ({ name: a.name.trim(), value: j === i ? e.target.value : variant.options[j]?.value ?? a.values[0]?.trim() ?? '' })); patch(index, { options, label: variantOptionsLabel(options) }); }}><option value="" disabled>Choisir</option>{axis.values.map((value, j) => <option key={j} value={value.trim()}>{value.trim()}</option>)}</select></div>)}
       </div>
       <ImageGallery id={variant.key} images={variant.images} onChange={images => patch(index, { images })} onBusy={onBusy} />

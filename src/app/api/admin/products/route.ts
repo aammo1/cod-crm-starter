@@ -7,14 +7,16 @@ import { createProduct } from "@/lib/services/catalog";
 import { createProductSchema } from "@/lib/services/catalog-schemas";
 import { InventoryConflictError, InventoryValidationError } from "@/lib/services/inventory-errors";
 import { validateVariantCombinations } from "@/lib/variant-options";
+import { readLimitedJsonOrNull, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+const MAX_BODY_BYTES = 256 * 1024;
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const user = await requireAdmin();
 
-    const body: unknown = await request.json().catch(() => null);
+    const body: unknown = await readLimitedJsonOrNull(request, MAX_BODY_BYTES);
     const parsed = createProductSchema.parse(body);
     if (parsed.variants) {
       try {
@@ -34,6 +36,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ product }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();
+    if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof InventoryConflictError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }

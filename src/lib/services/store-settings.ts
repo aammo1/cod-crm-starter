@@ -23,7 +23,7 @@ export function getStoreSettings(): StoreSettings {
 
 /**
  * Validated partial update; read/merge/write is serialized across DB connections.
- * Only the six safe settings are stored, together as one app_state JSON object.
+ * Only the seven safe settings (including assignmentMode) are stored, together as one app_state JSON object.
  *
  * Changes apply to NEW checkouts/offers only. Order creation must persist its
  * pricing rules, computed prices/totals, discount and absolute offer deadline

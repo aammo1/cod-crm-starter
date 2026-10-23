@@ -6,6 +6,7 @@ import { ProviderError } from "@/lib/shipping/errors";
 import type { DeliveryProvider } from "@/lib/shipping/provider";
 import { redactText } from "@/lib/shipping/redact";
 import { normalizeStatus, type NormalizedTrackingStatus } from "@/lib/shipping/status-map";
+import { setDeliveryOutcome } from "@/lib/services/delivery-outcomes";
 import { listMovements, recoverDispatch } from "@/lib/services/inventory";
 import { listSubmissions, type SubmissionRow } from "@/lib/services/submissions";
 import { ensureReturn } from "@/lib/services/returns";
@@ -283,11 +284,16 @@ function applySideEffects(
         // Movement recorded exactly once via recoverDispatch's order-wide guard.
         // cod_status stays untouched (delivered ≠ paid out).
         recoverMissedDispatch(submission);
+        // Idempotent; never overrides an agent-declared outcome.
+        setDeliveryOutcome(submission.orderId, "delivered", "tracking-poller", "tracking");
         break;
       case "refused":
       case "return_in_transit":
         // insert-or-ignore: monitoring only, never any stock change here.
         ensureReturn(submission.id, rawStatus);
+        if (normalized === "refused") {
+          setDeliveryOutcome(submission.orderId, "refused", "tracking-poller", "tracking");
+        }
         break;
       case "cancelled":
         // Change-gated so re-polls don't spam; stock untouched either way.

@@ -8,9 +8,14 @@ export const orderEditSchema = z.object({
     // Only existing accepted upsell lines may retain their discounted price.
     upsellIndex: z.number().int().min(0).optional(),
   }).strict()).min(1, "Conservez au moins un article ou annulez la commande.").max(50),
+  // "pack": server recomputes the quantity-pack saving and ignores discountType/Value.
+  // Omitted: "pack" when the order currently carries a pack snapshot, else "manual".
+  discountMode: z.enum(["pack", "manual"]).optional(),
   discountType: z.enum(["none", "fixed", "percent"]),
   discountValue: z.number().int().min(0).max(1_000_000),
   shippingMode: z.enum(["auto", "free", "paid"]),
+  // Explicit opt-in to the order city's customer fee override (server reads the tariff).
+  applyCityFee: z.boolean().optional(),
   reason: z.string().trim().min(3, "Indiquez un motif (3 caractères minimum).").max(1000, "Le motif ne peut pas dépasser 1 000 caractères."),
 }).strict().superRefine((input, ctx) => {
   if (input.discountType === "percent" && input.discountValue > 100) {
@@ -23,4 +28,5 @@ export const orderEditSchema = z.object({
 
 export type OrderEditInput = z.infer<typeof orderEditSchema>;
 export type DiscountType = OrderEditInput["discountType"];
+export type DiscountMode = NonNullable<OrderEditInput["discountMode"]>;
 export type ShippingMode = OrderEditInput["shippingMode"];

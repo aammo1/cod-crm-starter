@@ -4,12 +4,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 
-export function MobileMenu({ links, label }: { links: { href: string; label: string }[]; label: string }) {
+export function MobileMenu({ links, label, navLabel }: { links: { href: string; label: string }[]; label: string; navLabel: string }) {
   const ref = useRef<HTMLDetailsElement>(null);
   const pathname = usePathname();
   useEffect(() => {
     if (ref.current) ref.current.open = false;
   }, [pathname]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = ref.current;
+      if (e.key !== "Escape" || !el?.open) return;
+      el.open = false;
+      el.querySelector("summary")?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   return (
     <details ref={ref} className="group md:hidden">
       <summary
@@ -20,11 +30,11 @@ export function MobileMenu({ links, label }: { links: { href: string; label: str
           <path d="M3 6h18M3 12h18M3 18h18" />
         </svg>
       </summary>
-      <nav className="absolute inset-x-0 top-full border-b border-store-border bg-store-bg shadow-md">
+      <nav aria-label={navLabel} className="absolute inset-x-0 top-full border-b border-store-border bg-store-bg shadow-md">
         <ul className="flex flex-col py-2">
           {links.map((l) => (
             <li key={l.href}>
-              <Link href={l.href} className="block px-4 py-3 text-base hover:bg-store-muted">{l.label}</Link>
+              <Link href={l.href} onClick={() => { if (ref.current) ref.current.open = false; }} className="block px-4 py-3 text-base hover:bg-store-muted">{l.label}</Link>
             </li>
           ))}
         </ul>

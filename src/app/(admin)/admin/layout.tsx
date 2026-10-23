@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LogOutIcon } from "lucide-react";
 import { signOut } from "@/auth";
+import { revokeSessions } from "@/lib/services/team";
 
 import { requireAdmin } from "@/lib/auth-guards";
 import { getStoreSettings } from "@/lib/services/store-settings";
@@ -24,6 +25,7 @@ export default async function AdminLayout({
 
   async function logout() {
     "use server";
+    revokeSessions(user.id);
     await signOut({ redirectTo: "/login" });
   }
 

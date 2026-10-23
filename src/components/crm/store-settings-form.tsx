@@ -28,6 +28,7 @@ export function StoreSettingsForm({ initialSettings }: { initialSettings: StoreS
     const parsed = storeSettingsSchema.safeParse({
       storeName: form.get("storeName"),
       upsellEnabled: form.get("upsellEnabled") === "on",
+      assignmentMode: form.get("assignmentMode"),
       ...Object.fromEntries(numericFields.map(({ key }) => [key, Number(form.get(key))])),
     });
     if (!parsed.success) {
@@ -106,6 +107,21 @@ export function StoreSettingsForm({ initialSettings }: { initialSettings: StoreS
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle><h2>Attribution des commandes</h2></CardTitle>
+            <CardDescription>Répartition automatique des nouvelles commandes entre les agents actifs. Les administrateurs ne sont jamais assignés automatiquement.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <Label htmlFor="assignmentMode">Attribution des commandes</Label>
+            <select id="assignmentMode" name="assignmentMode" defaultValue={initialSettings.assignmentMode} className="min-h-11 rounded-md border border-input bg-background px-3 text-sm">
+              <option value="manual">Manuelle</option>
+              <option value="round_robin">Tour de rôle</option>
+              <option value="least_loaded">Charge la plus faible</option>
+            </select>
           </CardContent>
         </Card>
       </fieldset>

@@ -1,5 +1,8 @@
 import { metaEnabled, metaTick } from "@/lib/services/meta";
-import { setAppState } from "@/lib/services/app-state";
+import { log } from "@/lib/log";
+import { recordWorkerError, recordWorkerTick } from "@/lib/services/worker-status";
+
+export const WORKER_INTERVAL_MS = 5000;
 
 export function startMetaWorker() {
   if (!metaEnabled()) return;
@@ -10,12 +13,15 @@ export function startMetaWorker() {
     if (running) return;
     running = true;
     try {
-      setAppState("meta_last_tick", new Date().toISOString());
       await metaTick();
+      recordWorkerTick("meta");
     }
-    catch { console.error("[meta] conversion worker failed; will retry"); }
+    catch (err) {
+      log.error("meta.worker_failed", { error: err });
+      recordWorkerError("meta", err);
+    }
     finally { running = false; }
   };
-  global.__crmMetaWorker = setInterval(() => void run(), 5000);
+  global.__crmMetaWorker = setInterval(() => void run(), WORKER_INTERVAL_MS);
   void run();
 }

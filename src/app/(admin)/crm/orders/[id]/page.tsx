@@ -12,9 +12,13 @@ import {
 import { AssignControl } from "@/components/crm/assign-control";
 import { CancelOrder } from "@/components/crm/cancel-order";
 import { ConfirmOrder } from "@/components/crm/confirm-order";
+import { DeliveryOutcomeActions } from "@/components/crm/delivery-outcome-actions";
+import { getDeliveryOutcome } from "@/lib/services/delivery-outcomes";
 import { EditOrder } from "@/components/crm/edit-order";
+import { BlockPhoneButton } from "@/components/crm/block-phone-button";
+import { OrderAttributionCard } from "@/components/crm/order-attribution-card";
 import { OrderEditHistoryList } from "@/components/crm/order-edit-history";
-import { getOrderEditState, listOrderEdits, orderEditOptions } from "@/lib/services/order-edits";
+import { getOrderEditState, listOrderEdits, orderCityFeeProposal, orderEditOptions } from "@/lib/services/order-edits";
 import { MissingOrderShippingRulesError, orderShippingRules } from "@/lib/services/order-lines";
 import { CopyButton } from "@/components/crm/copy-button";
 import { SubmissionResolveForm } from "@/components/crm/submission-resolve-form";
@@ -186,6 +190,7 @@ export default async function OrderDetailPage({
     ...upsellLines.map((item) => ({ ...item, upsell: true })),
   ];
   const trackingNumber = order.submission?.trackingNumber ?? null;
+  const deliveryOutcome = getDeliveryOutcome(order.id);
 
   return (
     <div className="space-y-6">
@@ -219,6 +224,20 @@ export default async function OrderDetailPage({
         </p>
       </div>
 
+      {customerHistory.blocked ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-[var(--crm-danger)]/40 bg-[var(--crm-danger-bg)] px-4 py-3 text-sm text-[var(--crm-danger)]"
+        >
+          <p className="font-semibold">⛔ Numéro bloqué</p>
+          <p className="mt-1">
+            Motif : {customerHistory.blocked.reason}
+            {customerHistory.blocked.createdBy ? ` · par ${customerHistory.blocked.createdBy}` : ""} ·{" "}
+            {formatCasablanca(customerHistory.blocked.createdAt)}
+          </p>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2">
         {waButton(order, trackingNumber, "confirmation", "Confirmation", storeName)}
         {waButton(order, trackingNumber, "rappel", "Rappel", storeName)}
@@ -236,7 +255,7 @@ export default async function OrderDetailPage({
 
       {pricingError && editState.editable ? <p role="alert" className="rounded-xl border border-destructive p-4 text-sm text-destructive">{pricingError}</p> : null}
       {editState.editable && shippingRules ? <EditOrder key={editState.revision} orderId={id} revision={editState.revision}
-        snapshot={editState.snapshot} options={orderEditOptions()} shippingRules={shippingRules}>
+        snapshot={editState.snapshot} options={orderEditOptions()} shippingRules={shippingRules} cityFee={orderCityFeeProposal(id)}>
         <ConfirmOrder
           orderId={order.id}
           lines={allLines.map((item, index) => ({
@@ -283,6 +302,11 @@ export default async function OrderDetailPage({
                     className="text-muted-foreground hover:text-foreground"
                   />
                 </dd>
+                {customerHistory.blocked ? null : (
+                  <div className="mt-2">
+                    <BlockPhoneButton phone={order.customerPhone} />
+                  </div>
+                )}
               </div>
               <div className="sm:col-span-2">
                 <dt className="text-muted-foreground">Adresse</dt>
@@ -297,6 +321,8 @@ export default async function OrderDetailPage({
               </div>
             </dl>
           </section>
+
+          <OrderAttributionCard attribution={order.attribution} />
 
           <section className="rounded-xl border border-border bg-card p-5 text-card-foreground">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -317,7 +343,8 @@ export default async function OrderDetailPage({
                 ) : null}
                 <p className="mb-3 text-sm text-muted-foreground">
                   {customerHistory.orderCount} autre(s) commande(s) · {customerHistory.confirmedCount} confirmée(s) ·{" "}
-                  {customerHistory.cancelledCount} annulée(s) · {customerHistory.returnedCount} retour(s)
+                  {customerHistory.cancelledCount} annulée(s) · {customerHistory.returnedCount} retour(s) ·{" "}
+                  {customerHistory.deliveredCount} livrée(s) · {customerHistory.refusedCount} refusée(s)
                 </p>
                 <ul className="divide-y divide-border text-sm">
                   {customerHistory.recent.map((past) => (
@@ -502,6 +529,41 @@ export default async function OrderDetailPage({
             order.confirmationStatus === "confirmed" &&
             ["needs_review", "failed"].includes(order.submission.status) ? (
               <SubmissionResolveForm submissionId={order.submission.id} />
+            ) : null}
+            {order.confirmationStatus === "confirmed" &&
+            order.submission?.status === "submitted" &&
+            trackingNumber ? (
+              <div className="mt-4 border-t border-border pt-4 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-muted-foreground">Livraison</span>
+                  {deliveryOutcome ? (
+                    <>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                          deliveryOutcome.outcome === "delivered"
+                            ? "border-[var(--crm-success)]/40 bg-[var(--crm-success-bg)] text-[var(--crm-success)]"
+                            : "border-[var(--crm-danger)]/40 text-[var(--crm-danger)]"
+                        }`}
+                      >
+                        {deliveryOutcome.outcome === "delivered" ? "Livré" : "Refusé"}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {deliveryOutcome.source === "tracking"
+                          ? "Suivi transporteur"
+                          : (deliveryOutcome.byName ?? "Agent")}{" "}
+                        · {formatCasablanca(deliveryOutcome.at)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Non renseignée</span>
+                  )}
+                </div>
+                <DeliveryOutcomeActions
+                  orderId={order.id}
+                  current={deliveryOutcome?.outcome ?? null}
+                  isAdmin={user.role === "admin"}
+                />
+              </div>
             ) : null}
             {order.confirmationStatus === "confirmed" &&
               (!order.submission || ["queued", "failed"].includes(order.submission.status)) &&

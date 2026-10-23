@@ -5,8 +5,10 @@ import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { packsInputSchema, savePacksAndLanding } from "@/lib/services/packs";
 import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { z } from "@/lib/validation";
+import { readLimitedJsonOrNull, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+const MAX_BODY_BYTES = 256 * 1024;
 
 const bodySchema = z.object({ landingEnabled: z.boolean(), packs: packsInputSchema }).strict();
 
@@ -17,13 +19,14 @@ export async function PUT(
   try {
     await requireAdmin();
     const { id } = await params;
-    const body: unknown = await request.json().catch(() => null);
+    const body: unknown = await readLimitedJsonOrNull(request, MAX_BODY_BYTES);
     const parsed = bodySchema.parse(body);
     const result = savePacksAndLanding(id, parsed);
     revalidateStorefront();
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();
+    if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof ZodError) {
       return NextResponse.json({ error: "Packs invalides : 4 packs maximum, quantités de 2 à 10, prix entiers en MAD." }, { status: 400 });
     }

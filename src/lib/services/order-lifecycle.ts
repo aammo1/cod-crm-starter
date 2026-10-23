@@ -44,6 +44,13 @@ export function changeOrderLifecycle(
         // Remove only this order's durable conversion jobs, including pending jobs.
         db.prepare("DELETE FROM meta_events WHERE event_id IN (SELECT event_id FROM meta_purchases WHERE order_id = ?)").run(id);
         db.prepare("DELETE FROM tiktok_events WHERE event_id IN (SELECT event_id FROM tiktok_purchases WHERE order_id = ?)").run(id);
+        // manual_order_requests.order_id is a hard FK, so the row must go with the order;
+        // keep a tombstone so replaying the request id cannot create a new order.
+        for (const r of db.prepare("SELECT request_id FROM manual_order_requests WHERE order_id = ?").all(id) as { request_id: string }[]) {
+          db.prepare(`INSERT INTO app_state (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+            .run(`manual_request_tombstone:${r.request_id}`, JSON.stringify({ deletedOrderId: id, deletedAt: now }));
+        }
         for (const table of ["meta_purchases", "tiktok_purchases", "manual_order_requests", "order_contacts"]) {
           db.prepare(`DELETE FROM ${table} WHERE order_id = ?`).run(id);
         }

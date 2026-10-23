@@ -1,0 +1,4 @@
+# Daily CRM backup at 03:15 (Africa/Casablanca server time). Install: crontab -e
+# Replace <container> with the running container name (docker ps).
+# Optional offsite: set BACKUP_RCLONE_REMOTE in the container env (rclone must be configured there).
+15 3 * * * docker exec <container> node scripts/backup-db.mjs >> /var/log/crm-backup.log 2>&1

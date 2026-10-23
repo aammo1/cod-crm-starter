@@ -64,6 +64,8 @@ test("deletion requires admin and archived orders, and removes related notes and
     VALUES ('note', 'delete-me', 'note', 'note', '2020-01-01')`).run();
   changeOrderLifecycle(["delete-me"], "delete", admin);
   assert.equal(getOrder("delete-me"), null);
+  const tomb = db.prepare("SELECT value FROM app_state WHERE key = 'manual_request_tombstone:request-test'").get();
+  assert.equal(JSON.parse(tomb.value).deletedOrderId, "delete-me");
   for (const table of ["meta_events", "meta_purchases", "manual_order_requests"]) {
     assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n, 0);
   }
@@ -446,7 +448,7 @@ test("lifecycle API enforces login, validates batches, and rejects agent deletio
 });
 
 // Pack pricing: discounted subtotal drives shipping, upsell accept and agent edits.
-test("pack orders: upsell accept keeps the pack discount; agent edits keep the explicit fixed discount", () => {
+test("pack orders: upsell accept keeps the pack discount; agent manual edits keep the explicit fixed discount; default pack mode recomputes", () => {
   const { editOrder, getOrderEditState } = loadSource("@/lib/services/order-edits");
   db.prepare("UPDATE products SET price = 300, active = 1, name = 'cart' WHERE id = 'cart'").run();
   db.prepare("UPDATE products SET price = 100, active = 1, name = 'offer' WHERE id = 'offer'").run();
@@ -484,17 +486,18 @@ test("pack orders: upsell accept keeps the pack discount; agent edits keep the e
   assert.equal(paid.totals.total, 529);
   assert.equal(cheap.totals.shipping, 0);
 
-  // Edit: quantity 2 -> 1 with the pack's fixed discount re-submitted by the agent keeps it as an explicit,
-  // audited agent discount (not recomputed from pack_snapshot_json); the pack snapshot stays as checkout history.
+  // Edit in explicit manual mode: quantity 2 -> 1 with the fixed discount submitted by the agent is honored as an
+  // audited agent discount, and manual mode clears pack_snapshot_json. Without a mode, an order that has a pack
+  // snapshot defaults to pack mode: the submitted discount is ignored and recomputed from product_packs.
   const edit = (orderId, extra) => {
     const state = getOrderEditState(orderId);
     return editOrder(orderId, { revision: state.revision, lines: [{ variantId: "cart-v", qty: 1 }],
-      discountType: "fixed", discountValue: 100, shippingMode: "auto", reason: "Test modification", ...extra }, agent);
+      discountMode: "manual", discountType: "fixed", discountValue: 100, shippingMode: "auto", reason: "Test modification", ...extra }, agent);
   };
   edit(paid.orderId, {});
   row = db.prepare("SELECT * FROM orders WHERE id = ?").get(paid.orderId);
   assert.deepEqual([row.subtotal, row.discount_amount, row.shipping, row.total], [300, 100, 29, 229]);
-  assert.ok(row.pack_snapshot_json);
+  assert.equal(row.pack_snapshot_json, null);
   // A fixed discount above the remaining items is rejected with a French message.
   assert.throws(() => edit(paid.orderId, { discountValue: 301 }),
     (error) => error.status === 400 && /remise ne peut pas dépasser/.test(error.message));
@@ -502,4 +505,11 @@ test("pack orders: upsell accept keeps the pack discount; agent edits keep the e
   edit(paid.orderId, { discountType: "none", discountValue: 0 });
   row = db.prepare("SELECT * FROM orders WHERE id = ?").get(paid.orderId);
   assert.deepEqual([row.subtotal, row.discount_amount, row.total], [300, 0, 329]);
+  // Omitting discountMode on an order that still has a pack snapshot defaults to pack mode: quantity 1 matches
+  // no pack, so the submitted fixed discount is ignored and the snapshot is cleared.
+  assert.ok(db.prepare("SELECT pack_snapshot_json FROM orders WHERE id = ?").get(cheap.orderId).pack_snapshot_json);
+  edit(cheap.orderId, { discountMode: undefined });
+  row = db.prepare("SELECT * FROM orders WHERE id = ?").get(cheap.orderId);
+  assert.deepEqual([row.subtotal, row.discount_amount, row.shipping, row.total], [300, 0, 29, 329]);
+  assert.equal(row.pack_snapshot_json, null);
 });

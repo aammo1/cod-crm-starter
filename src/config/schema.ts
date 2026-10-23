@@ -1,4 +1,5 @@
 import { z } from "@/lib/validation";
+import { bestForeground } from "./contrast";
 
 const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const text = z.string().trim().min(1);
@@ -15,9 +16,9 @@ export const storeConfigSchema = z.object({
     logoHeight: z.number().int().positive(),
     icon: z.string().startsWith("/").optional(),
     colors: z.object({
-      primary: hex, primaryForeground: hex, accent: hex,
+      primary: hex, primaryForeground: hex, accent: hex, accentForeground: hex.optional(),
       background: hex, foreground: hex, muted: hex, border: hex,
-    }),
+    }).transform((c) => ({ ...c, accentForeground: c.accentForeground ?? bestForeground(c.accent) })),
     fonts: z.object({
       heading: z.enum(["playfair", "inter", "cairo"]),
       body: z.enum(["inter", "cairo"]),
@@ -47,6 +48,7 @@ export const storeConfigSchema = z.object({
     sizeGuides: z.record(z.string(), z.object({ title: text, headers: z.array(text), rows: z.array(z.array(z.string())) })).default({}),
   }),
   landing: z.object({ stickyCta: z.boolean().default(true), index: z.boolean().default(false) }).default({}),
+  leads: z.object({ enabled: z.boolean().default(false) }).default({}), // opt-in abandoned checkout leads
   legal: z.object({ about: text, shipping: text, terms: text, privacy: text }), // plain text / simple markdown paragraphs
   tracking: z.object({
     metaPixelId: z.string().regex(/^\d{5,20}$/).optional(),

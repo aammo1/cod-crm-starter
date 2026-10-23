@@ -25,6 +25,16 @@ export function ThankYou({ locale, storeSlug, whatsapp }: { locale: Locale; stor
                 <span className="tabular-nums">{formatPrice(locale, l.unitPrice * l.qty)}</span>
               </li>
             ))}
+            {!!order.totals.packDiscount && order.totals.packDiscount > 0 && (
+              <li className="flex justify-between text-store-accent">
+                <span>{t(locale, "packDiscount")}</span>
+                <span className="tabular-nums">-{formatPrice(locale, order.totals.packDiscount)}</span>
+              </li>
+            )}
+            <li className="flex justify-between">
+              <span>{t(locale, "shipping")}</span>
+              <span className="tabular-nums">{order.totals.shipping === 0 ? t(locale, "freeShipping") : formatPrice(locale, order.totals.shipping)}</span>
+            </li>
           </ul>
           <p className="mt-3 flex justify-between border-t border-store-border pt-2 font-semibold">
             <span>{t(locale, "total")}</span>
@@ -37,6 +47,11 @@ export function ThankYou({ locale, storeSlug, whatsapp }: { locale: Locale; stor
           className="inline-flex h-11 items-center rounded-store bg-store-primary px-6 text-store-primary-fg">
           {t(locale, "contactWhatsapp")}
         </a>
+        {number && (
+          <Link href={`/suivi?ref=${number}`} className="inline-flex h-11 items-center rounded-store border border-store-border px-6">
+            {t(locale, "trackOrder")}
+          </Link>
+        )}
         <Link href="/" className="inline-flex h-11 items-center rounded-store border border-store-border px-6">
           {t(locale, "home")}
         </Link>

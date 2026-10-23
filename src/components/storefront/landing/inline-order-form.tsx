@@ -8,7 +8,9 @@ import { applyPacks } from "@/lib/pack-pricing";
 import { track } from "@/lib/storefront/track";
 import { useFunnel, writePendingOrder } from "@/stores/funnel";
 import { normalizeMaPhoneClient } from "../funnel/phone";
-import { useCheckout } from "../funnel/use-checkout";
+import { describeFailure, type FailureLabels, type FailureView } from "../funnel/checkout-attempt";
+import { useCheckout, useCooldown } from "../funnel/use-checkout";
+import { useLeadCapture } from "../funnel/use-lead-capture";
 import { fillLabel, PackSelector } from "./pack-selector";
 
 const LANDING_TOTAL_EVENT = "storefront:landing-total";
@@ -40,8 +42,8 @@ function initialSelection(product: LandingProduct): Selection {
 
 const FIELD = "h-12 w-full rounded-store border border-store-border bg-store-bg px-3 text-base";
 
-export function InlineOrderForm({ product, labels, storeSlug, shippingFeeMad, freeShippingThresholdMad }: {
-  product: LandingProduct; labels: LandingLabels; storeSlug: string; shippingFeeMad: number; freeShippingThresholdMad: number;
+export function InlineOrderForm({ product, labels, storeSlug, shippingFeeMad, freeShippingThresholdMad, whatsappHref, leads }: {
+  leads?: boolean; product: LandingProduct; labels: LandingLabels; storeSlug: string; whatsappHref: string; shippingFeeMad: number; freeShippingThresholdMad: number;
 }) {
   const router = useRouter();
   const startUpsell = useFunnel((s) => s.startUpsell);
@@ -57,6 +59,10 @@ export function InlineOrderForm({ product, labels, storeSlug, shippingFeeMad, fr
   const [phone, setPhone] = useState("");
   const [errors, setErrors] = useState<{ name?: string; phone?: string; form?: string }>({});
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [fail, setFail] = useState<FailureView | null>(null);
+  const cooldown = useCooldown();
+  const failureLabels: FailureLabels = labels;
   const focused = useRef(false);
   const viewed = useRef(false);
 
@@ -71,6 +77,8 @@ export function InlineOrderForm({ product, labels, storeSlug, shippingFeeMad, fr
   const unitVariants = unitSels.map((sel) => (hasOptions ? product.variants.find((v) => matches(v, sel)) : product.variants[0]));
   const anySoldOut = unitVariants.some((v) => !v || !v.available);
 
+  useLeadCapture(leads, name, phone, unitVariants.flatMap((v) => (v ? [{ variantId: v.id, qty: 1 }] : [])), busy || done);
+
   const regular = qty * product.price;
   const { discount } = applyPacks([{ productId: product.id, qty, unitPrice: product.price }], { [product.id]: packs });
   const net = regular - discount;
@@ -78,8 +86,8 @@ export function InlineOrderForm({ product, labels, storeSlug, shippingFeeMad, fr
   const total = net + shipping;
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent(LANDING_TOTAL_EVENT, { detail: net }));
-  }, [net]);
+    window.dispatchEvent(new CustomEvent(LANDING_TOTAL_EVENT, { detail: total }));
+  }, [total]);
 
   function setOption(unit: number, def: string, value: string) {
     setSels((all) => all.map((s, i) => (i === unit ? { ...s, [def]: value } : s)));
@@ -96,14 +104,22 @@ export function InlineOrderForm({ product, labels, storeSlug, shippingFeeMad, fr
     track("InitiateCheckout", [{ id: product.id, quantity: qty }]);
   }
 
-  async function onSubmit(event: FormEvent) {
+  function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (busy) return;
-    const next: typeof errors = {};
-    if (name.trim().length < 2) next.name = labels.nameRequired;
-    if (!normalizeMaPhoneClient(phone)) next.phone = labels.phoneInvalid;
-    setErrors(next);
-    if (next.name || next.phone || anySoldOut) return;
+    void send(false);
+  }
+
+  async function send(resubmitStored: boolean) {
+    if (busy || cooldown.remaining > 0) return;
+    if (!resubmitStored) {
+      const next: typeof errors = {};
+      if (name.trim().length < 2) next.name = labels.nameRequired;
+      if (!normalizeMaPhoneClient(phone)) next.phone = labels.phoneInvalid;
+      setErrors(next);
+      if (next.name || next.phone || anySoldOut) return;
+    }
+    setErrors({});
+    setFail(null);
 
     const grouped = new Map<string, { variant: PublicCommerceVariant; qty: number }>();
     for (const v of unitVariants as PublicCommerceVariant[]) {
@@ -115,16 +131,24 @@ export function InlineOrderForm({ product, labels, storeSlug, shippingFeeMad, fr
       const result = await submit({
         name, phone,
         items: [...grouped.values()].map((g) => ({ variantId: g.variant.id, qty: g.qty, productId: product.id })),
-      });
+      }, { resubmitStored });
       if (!result.ok) {
         if (result.code === "INVALID_VARIANT") router.refresh();
-        setErrors({ form: result.status === 429 ? labels.retryLater : labels.genericError });
+        const view = describeFailure(result, failureLabels);
+        if (view.phoneField) setErrors({ phone: view.message });
+        else setFail(view);
+        if (view.cooldown) cooldown.start(view.cooldown);
         return;
       }
+      setDone(true);
+      // Display the lines actually submitted (a retried uncertain attempt may differ from the form).
+      const submitted = new Map(result.items.map((i) => [i.variantId, i.qty]));
+      const shown = [...grouped.values()].filter((g) => submitted.has(g.variant.id))
+        .map((g) => ({ ...g, qty: submitted.get(g.variant.id) ?? g.qty }));
       const order = {
         orderId: result.orderId,
         totals: result.totals,
-        lines: [...grouped.values()].map((g) => ({ name: product.name, optionsLabel: g.variant.label, qty: g.qty, unitPrice: product.price })),
+        lines: (shown.length ? shown : [...grouped.values()]).map((g) => ({ name: product.name, optionsLabel: g.variant.label, qty: g.qty, unitPrice: product.price })),
       };
       writePendingOrder(storeSlug, order);
       const offer = result.upsellOffer;
@@ -194,21 +218,42 @@ export function InlineOrderForm({ product, labels, storeSlug, shippingFeeMad, fr
             placeholder={labels.phonePlaceholder} value={phone} maxLength={20}
             aria-invalid={!!errors.phone} onChange={(e) => setPhone(e.target.value)} className={FIELD} />
           {errors.phone && <p className="text-xs text-destructive" role="alert">{errors.phone}</p>}
+          {leads && <p className="text-xs opacity-70">{labels.leadNotice}</p>}
         </div>
       </div>
 
       <p className="text-sm opacity-80">{labels.cod}</p>
       <dl className="space-y-1 text-sm">
-        <div className="flex justify-between"><dt>{labels.subtotal}</dt><dd className="tabular-nums">{price(net)}</dd></div>
+        <div className="flex justify-between"><dt>{labels.subtotal}</dt><dd className="tabular-nums">{price(regular)}</dd></div>
+        {discount > 0 && (
+          <div className="flex justify-between text-store-accent"><dt>{labels.packDiscount}</dt><dd className="tabular-nums">-{price(discount)}</dd></div>
+        )}
         <div className="flex justify-between"><dt>{labels.shipping}</dt><dd className="tabular-nums">{shipping === 0 ? labels.freeShipping : price(shipping)}</dd></div>
         <div className="flex justify-between border-t border-store-border pt-1 text-base font-bold">
           <dt>{labels.total}</dt><dd className="tabular-nums">{price(total)}</dd>
         </div>
       </dl>
 
-      {errors.form && <p className="text-sm text-destructive" role="alert">{errors.form}</p>}
-      <button type="submit" disabled={busy || anySoldOut}
-        className="h-14 w-full rounded-store bg-store-accent text-lg font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+      {fail && (
+        <div className="space-y-2 text-sm" role="alert">
+          <p className="text-destructive">{cooldown.remaining > 0 && fail.cooldown
+            ? labels.retryLaterSeconds.split("{s}").join(String(cooldown.remaining)) : fail.message}</p>
+          {(fail.retry || fail.whatsapp) && (
+            <div className="flex flex-wrap gap-2">
+              {fail.retry && (
+                <button type="button" disabled={busy} onClick={() => void send(true)}
+                  className="h-11 rounded-store border border-store-border px-4">{labels.errorRetry}</button>
+              )}
+              {fail.whatsapp && (
+                <a href={whatsappHref} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex h-11 items-center rounded-store border border-store-border px-4">{labels.contactWhatsapp}</a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      <button type="submit" disabled={busy || anySoldOut || cooldown.remaining > 0}
+        className="h-14 w-full rounded-store bg-store-accent text-lg font-bold text-store-accent-fg disabled:cursor-not-allowed disabled:opacity-50">
         {busy ? labels.sending : anySoldOut ? labels.soldOut : labels.confirmOrder}
       </button>
     </form>

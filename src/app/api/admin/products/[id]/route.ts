@@ -6,8 +6,10 @@ import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { updateProduct } from "@/lib/services/catalog";
 import { updateProductSchema } from "@/lib/services/catalog-schemas";
 import { InventoryConflictError } from "@/lib/services/inventory-errors";
+import { readLimitedJsonOrNull, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+const MAX_BODY_BYTES = 256 * 1024;
 
 export async function PUT(
   request: Request,
@@ -17,13 +19,14 @@ export async function PUT(
     await requireAdmin();
 
     const { id } = await params;
-    const body: unknown = await request.json().catch(() => null);
+    const body: unknown = await readLimitedJsonOrNull(request, MAX_BODY_BYTES);
     const parsed = updateProductSchema.parse(body);
     const product = updateProduct(id, parsed);
     revalidateStorefront();
     return NextResponse.json({ product }, { status: 200 });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();
+    if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof ZodError) {
       return NextResponse.json({ error: error.issues[0]?.message ?? "Requête invalide." }, { status: 400 });
     }

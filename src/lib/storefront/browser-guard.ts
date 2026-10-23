@@ -12,17 +12,20 @@ export function storeError(code: string, message: string, status: number, retryA
 
 /** Same-origin check, shared durable budget and bounded JSON body for /api/store/* POSTs. */
 export async function guardStoreRequest(
-  request: Request, budgetScope: "store-checkout" | "store-upsell", maxBytes = 16_384,
+  request: Request, budgetScope: "store-checkout" | "store-upsell" | "store-track" | "store-lead", maxBytes = 16_384,
 ): Promise<{ ok: true; body: unknown } | { ok: false; response: Response }> {
   const site = request.headers.get("sec-fetch-site");
   const sameOrigin = site ? site === "same-origin" : browserMutationAllowed(request);
   if (!sameOrigin) return { ok: false, response: storeError("FORBIDDEN", "Origine non autorisée.", 403) };
   try {
     const ip = trustedClientIp(request);
-    const limit = budgetScope === "store-checkout" ? 120 : 240;
+    const checkout = budgetScope === "store-checkout";
+    const track = budgetScope === "store-track" || budgetScope === "store-lead";
+    // Trusted IP: per-IP is primary and global is a high-water safety net.
+    // No IP (operator acknowledged global budgets): keep the lower global cap.
     const retry = consumeBudgets([
-      { key: `${budgetScope}:global`, limit, windowMs: 60_000 },
-      ...(ip ? [{ key: budgetKey(`${budgetScope}:ip`, ip), limit: limit / 6, windowMs: 60_000 }] : []),
+      { key: `${budgetScope}:global`, limit: track ? (ip ? 300 : 60) : ip ? (checkout ? 600 : 1200) : (checkout ? 120 : 240), windowMs: 60_000 },
+      ...(ip ? [{ key: budgetKey(`${budgetScope}:ip`, ip), limit: track ? 10 : checkout ? 20 : 40, windowMs: 60_000 }] : []),
     ]);
     if (retry) return { ok: false, response: storeError("RATE_LIMITED", "Réessayez dans quelques instants.", 429, retry) };
     return { ok: true, body: await readLimitedJson(request, maxBytes) };

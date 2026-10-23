@@ -51,12 +51,16 @@ function ordersUrl(params: {
   page?: number;
   archived?: boolean;
   mine?: boolean;
+  utmSource?: string;
+  utmCampaign?: string;
 }): string {
   const sp = new URLSearchParams();
   if (params.status) sp.set("status", params.status);
   if (params.archived) sp.set("archived", "1");
   if (params.mine) sp.set("mine", "1");
   if (params.q) sp.set("q", params.q);
+  if (params.utmSource) sp.set("utm_source", params.utmSource);
+  if (params.utmCampaign) sp.set("utm_campaign", params.utmCampaign);
   if (params.callbackDue) sp.set("callbackDue", "1");
   if (params.submission && params.submission.length > 0) {
     sp.set("submission", params.submission.join(","));
@@ -113,7 +117,9 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const archived = first(sp.archived) === "1";
   // "Mes commandes": orders assigned to the signed-in user; kept across every view link.
   const mine = first(sp.mine) === "1";
-  const viewUrl = (params: Parameters<typeof ordersUrl>[0]) => ordersUrl({ archived, mine, ...params });
+  const viewUrl = (params: Parameters<typeof ordersUrl>[0]) => ordersUrl({ archived, mine, utmSource, utmCampaign, ...params });
+  const utmSource = first(sp.utm_source)?.slice(0, 200);
+  const utmCampaign = first(sp.utm_campaign)?.slice(0, 200);
   const now = new Date();
   const nowIso = now.toISOString();
 
@@ -151,10 +157,21 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     q,
     callbackDue,
     assignedTo: mine ? user.id : undefined,
+    utmSource,
+    utmCampaign,
     submission: submission.length > 0 ? submission : undefined,
     tracking: tracking.length > 0 ? tracking : undefined,
     page,
   });
+
+  // Export keeps every current filter but never the page number.
+  const exportParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(sp)) {
+    if (key === "page" || value === undefined) continue;
+    for (const v of Array.isArray(value) ? value : [value]) exportParams.append(key, v);
+  }
+  if (!exportParams.has("status")) exportParams.set("status", status);
+  const exportHref = `/api/crm/orders/export?${exportParams.toString()}`;
 
   const isATraiterActive =
     status === "new" &&
@@ -202,6 +219,11 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {user.role === "admin" ? (
+            <Button asChild variant="outline">
+              <a href={exportHref}>Exporter CSV</a>
+            </Button>
+          ) : null}
           <Button asChild variant="outline">
             <Link href={ordersUrl({ archived: !archived, status: "all" })}>
               {archived ? "Commandes actives" : "Archives"}

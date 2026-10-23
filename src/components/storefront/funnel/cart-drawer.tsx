@@ -87,12 +87,12 @@ export default function CartDrawer({ locale, shippingFeeMad, freeShippingThresho
                       {line.optionsLabel && <p className="truncate text-xs opacity-70">{line.optionsLabel}</p>}
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1">
-                          <Button type="button" variant="outline" size="icon-sm" aria-label="−"
+                          <Button type="button" variant="outline" size="icon-sm" aria-label={t(locale, "decrease")}
                             disabled={line.qty <= 1} onClick={() => setQty(line.variantId, line.qty - 1)}>
                             <Minus />
                           </Button>
                           <span className="w-6 text-center text-sm tabular-nums" aria-label={t(locale, "quantity")}>{line.qty}</span>
-                          <Button type="button" variant="outline" size="icon-sm" aria-label="+"
+                          <Button type="button" variant="outline" size="icon-sm" aria-label={t(locale, "increase")}
                             disabled={line.qty >= MAX_LINE_QTY} onClick={() => setQty(line.variantId, line.qty + 1)}>
                             <Plus />
                           </Button>

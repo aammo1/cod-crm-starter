@@ -7,6 +7,7 @@ export function Footer() {
   const links = [
     { href: "/a-propos", label: t(locale, "about") },
     { href: "/contact", label: t(locale, "contact") },
+    { href: "/suivi", label: t(locale, "trackOrder") },
     { href: "/livraison-retours", label: t(locale, "shippingReturns") },
     { href: "/cgv", label: t(locale, "terms") },
     { href: "/confidentialite", label: t(locale, "privacy") },

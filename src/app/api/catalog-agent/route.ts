@@ -5,12 +5,15 @@ import { CatalogAgentError, requireCatalogAgent } from "@/lib/catalog-agent-auth
 import { listProducts } from "@/lib/services/catalog";
 import { applyCatalogOperation, catalogReceipt, findCatalogProduct, previewCatalogOperation } from "@/lib/services/catalog-agent";
 import { InventoryConflictError, InventoryValidationError } from "@/lib/services/inventory";
+import { readLimitedJsonOrNull, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+const MAX_BODY_BYTES = 512 * 1024;
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "no-store" };
 
 function failure(error: unknown): NextResponse {
+  if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status, headers });
   if (error instanceof CatalogAgentError) return NextResponse.json({ error: error.message }, { status: error.status, headers });
   if (error instanceof ZodError) return NextResponse.json({ error: error.issues[0]?.message ?? "Requête invalide." }, { status: 400, headers });
   if (error instanceof InventoryConflictError) return NextResponse.json({ error: error.message }, { status: 409, headers });
@@ -48,7 +51,7 @@ const bodySchema = z.discriminatedUnion("action", [
 export async function POST(request: Request) {
   try {
     requireCatalogAgent(request);
-    const body = bodySchema.parse(await request.json().catch(() => null));
+    const body = bodySchema.parse(await readLimitedJsonOrNull(request, MAX_BODY_BYTES));
     if (body.action === "preview") return NextResponse.json(previewCatalogOperation(body.operation), { headers });
     const result = applyCatalogOperation(body.operation, body.preview);
     revalidateStorefront();

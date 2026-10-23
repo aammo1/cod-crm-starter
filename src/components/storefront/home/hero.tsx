@@ -11,7 +11,7 @@ export function Hero() {
       <div className="mx-auto w-full max-w-6xl px-4 pb-10 text-white">
         <h1 className="font-heading text-3xl font-semibold sm:text-5xl">{hero.title}</h1>
         <p className="mt-3 max-w-xl text-base sm:text-lg">{hero.subtitle}</p>
-        <Link href={hero.ctaHref} className="mt-6 inline-flex h-12 items-center rounded-store bg-store-accent px-6 font-semibold text-white">
+        <Link href={hero.ctaHref} className="mt-6 inline-flex h-12 items-center rounded-store bg-store-accent px-6 font-semibold text-store-accent-fg">
           {hero.ctaLabel}
         </Link>
       </div>

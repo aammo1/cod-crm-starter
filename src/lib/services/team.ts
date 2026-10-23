@@ -65,6 +65,25 @@ export function listTeamAgents(): TeamAgent[] {
   }));
 }
 
+export type TeamAdmin = {
+  id: string;
+  name: string;
+  email: string;
+  isActive: boolean;
+};
+
+export function listOtherAdmins(excludeUserId: string): TeamAdmin[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, name, email, is_active
+       FROM users
+       WHERE role = 'admin' AND id <> ?
+       ORDER BY name COLLATE NOCASE ASC, id ASC`,
+    )
+    .all(excludeUserId) as Array<{ id: string; name: string; email: string; is_active: number }>;
+  return rows.map((r) => ({ id: r.id, name: r.name, email: r.email, isActive: Boolean(r.is_active) }));
+}
+
 function insertAgent(input: {
   name: string;
   email: string;
@@ -232,6 +251,17 @@ export function resetAgentPassword(id: string, password: string, actorId: string
   getDb().transaction(() => {
     changeAgentPassword(id, password);
     auditAccountChange("agent.password_reset", actorId, id);
+  }).immediate();
+}
+
+/** Invalidates every JWT of a user (any role) by bumping session_version. */
+export function revokeSessions(userId: string, actorId?: string): void {
+  getDb().transaction(() => {
+    const result = getDb()
+      .prepare("UPDATE users SET session_version = session_version + 1 WHERE id = ?")
+      .run(userId);
+    if (result.changes === 0) throw new TeamServiceError(404, "Utilisateur introuvable.");
+    if (actorId) auditAccountChange("user.sessions_revoked", actorId, userId);
   }).immediate();
 }
 

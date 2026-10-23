@@ -7,8 +7,10 @@ import {
   insertContact,
   parseCasablancaLocal,
 } from "@/lib/services/orders";
+import { readLimitedJson, RequestBodyError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+const MAX_BODY_BYTES = 32 * 1024;
 
 export async function POST(
   request: Request,
@@ -20,8 +22,9 @@ export async function POST(
 
     let body: unknown;
     try {
-      body = await request.json();
-    } catch {
+      body = await readLimitedJson(request, MAX_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyError) return NextResponse.json({ error: error.message }, { status: error.status });
       return NextResponse.json({ error: "Requête invalide" }, { status: 400 });
     }
 

@@ -8,8 +8,8 @@ export const root = fileURLToPath(new URL("../", import.meta.url));
 export function auditReleaseTree() {
   const files = [...new Set(execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8" }).split("\0"))]
     .filter(file => file && existsSync(path.join(root, file))).sort();
-  const allowedRoots = new Set([".github", "src", "scripts", "migrations", "docs", "specs", "examples", "integrations", "public"]);
-  const allowedRootFiles = new Set([".dockerignore", ".env.example", ".gitignore", "AGENTS.md", "Dockerfile", "README.md", "components.json", "docker-compose.yml", "eslint.config.mjs", "next.config.ts", "store.config.ts", "package-lock.json", "package.json", "postcss.config.mjs", "tsconfig.json"]);
+  const allowedRoots = new Set([".github", "src", "scripts", "migrations", "docs", "specs", "deploy", "examples", "integrations", "public"]);
+  const allowedRootFiles = new Set([".dockerignore", ".env.example", ".gitignore", "AGENTS.md", "Dockerfile", "README.md", "components.json", "docker-compose.yml", "eslint.config.mjs", "next.config.ts", "store.config.ts", "package-lock.json", "package.json", ".template-version", "postcss.config.mjs", "tsconfig.json"]);
   const fonts = new Set(["src/app/fonts/inter-latin-var.woff2", "src/app/fonts/playfair-latin-var.woff2", "src/app/fonts/playfair-latin-italic-var.woff2", "src/app/fonts/cairo-arabic-var.woff2"]);
   for (const file of files) {
     assert.ok(file.includes("/") ? allowedRoots.has(file.split("/")[0]) : allowedRootFiles.has(file), `Unexpected release path: ${file}`);
@@ -20,7 +20,7 @@ export function auditReleaseTree() {
     if (file.startsWith("public/brand/")) continue;
     assert.ok(!/(?:^|\/)(?:\.git|data|uploads|backups|secrets|node_modules|\.next|test-results|playwright-report|\.auth)(?:\/|$)|\.(?:db|sqlite\d*|pem|key|p12|pfx|log|csv|zip|png|jpe?g|webp|pdf)(?:$|[-.])|\.env(?!\.example$)/i.test(file), `Private artifact: ${file}`);
     if (fonts.has(file)) continue;
-    assert.ok(file === "public/.gitkeep" || /\.(?:md|ts|tsx|mjs|css|json|sql|yml)$/.test(file) || allowedRootFiles.has(file), `Unreviewed binary: ${file}`);
+    assert.ok(file === "public/.gitkeep" || /\.(?:md|ts|tsx|mjs|css|json|sql|yml|cron|service|timer)$/.test(file) || allowedRootFiles.has(file), `Unreviewed binary: ${file}`);
     const text = readFileSync(path.join(root, file), "utf8");
     assert.ok(!text.includes("\0"), `Unexpected binary: ${file}`);
     // High-confidence material only; do not print matched secret contents.

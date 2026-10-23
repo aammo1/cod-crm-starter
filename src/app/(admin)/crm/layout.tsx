@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LogOutIcon } from "lucide-react";
 import { signOut } from "@/auth";
+import { revokeSessions } from "@/lib/services/team";
 
 import "./crm-theme.css";
 import { CrmThemeProvider } from "@/components/crm/crm-theme-provider";
@@ -32,6 +33,7 @@ export default async function CrmLayout({
 
   async function logout() {
     "use server";
+    revokeSessions(user.id);
     await signOut({ redirectTo: "/login" });
   }
 

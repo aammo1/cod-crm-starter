@@ -147,6 +147,26 @@ export function OrdersTable({
                   </a>
                   <CopyButton value={order.customerPhone} label="" className="text-muted-foreground hover:text-foreground" />
                 </span>
+                {order.phoneBlocked || order.priorRefusals > 0 ? (
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    {order.phoneBlocked ? (
+                      <span
+                        title="Numéro bloqué"
+                        className="inline-flex rounded-full border border-[var(--crm-danger)]/40 bg-[var(--crm-danger-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--crm-danger)]"
+                      >
+                        Bloqué
+                      </span>
+                    ) : null}
+                    {order.priorRefusals > 0 ? (
+                      <span
+                        title="Autres commandes refusées ou retournées avec ce numéro"
+                        className="inline-flex rounded-full border border-[var(--crm-warning)]/40 bg-[var(--crm-warning-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--crm-warning)]"
+                      >
+                        {order.priorRefusals} refus
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
                 {order.noAnswerCount > 0 ? (
                   <span
                     title="Appels sans réponse enregistrés"

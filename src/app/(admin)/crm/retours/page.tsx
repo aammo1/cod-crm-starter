@@ -218,7 +218,7 @@ export default async function ReturnsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireUser();
+  const viewer = await requireUser();
   const sp = await searchParams;
   const declare = typeof sp.declare === "string" ? sp.declare : undefined;
   const declareMessage = declare ? DECLARE_MESSAGES[declare] : undefined;
@@ -312,6 +312,7 @@ export default async function ReturnsPage({
                 <div className="border-t border-border pt-4">
                   <ReturnInspectForm
                     returnId={card.id}
+                    isAdmin={viewer.role === "admin"}
                     lines={buildInspectLines(card)}
                   />
                 </div>

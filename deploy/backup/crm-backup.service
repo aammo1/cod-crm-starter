@@ -1,0 +1,9 @@
+[Unit]
+Description=CRM SQLite + uploads backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Replace <container> with the running container name.
+ExecStart=/usr/bin/docker exec <container> node scripts/backup-db.mjs

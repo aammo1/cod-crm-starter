@@ -1,10 +1,9 @@
+import { normalizeMaPhoneCore } from "./phone-core";
 import { z } from "./validation";
 
-/** Accepts 06/07XXXXXXXX, +212 6/7…, 212 6/7… — tolerant of spaces, dashes, dots, parens. */
+/** Accepts 06/07XXXXXXXX, +212 6/7…, 00212…, Arabic-Indic digits — see phone-core. */
 export function normalizeMaPhone(raw: string): string | null {
-  const cleaned = raw.replace(/[\s\-().]/g, "");
-  const m = cleaned.match(/^(?:\+212|212|0)([67]\d{8})$/);
-  return m ? `+212${m[1]}` : null;
+  return normalizeMaPhoneCore(raw);
 }
 
 /** Ozon expects the local format 06XXXXXXXX (+2126XXXXXXXX → 06XXXXXXXX). */

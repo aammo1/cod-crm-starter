@@ -2,17 +2,21 @@ import crypto from "node:crypto";
 import { nanoid } from "nanoid";
 import { getDb } from "@/lib/db";
 import type { CommerceOrderItem as OrderItem } from "@/lib/commerce-types";
-import { shippingFor } from "@/lib/pricing";
+import { priceOrderLines } from "@/lib/services/order-pricing";
+import { getActivePacksFor } from "@/lib/services/packs";
 import { normalizeMaPhone } from "@/lib/phone";
 import { getVariantById } from "@/lib/services/catalog";
 import { getStoreSettings } from "@/lib/services/store-settings";
 import { setAppState } from "@/lib/services/app-state";
+import { pickAssignee } from "@/lib/services/assignment";
 import { orderLineSnapshot, orderRulesKey } from "@/lib/services/order-lines";
 import {
   type ManualOrderInput,
   MANUAL_ORDER_SOURCE_LABELS,
   manualOrderInputSchema,
 } from "@/lib/manual-order-schema";
+
+export const manualRequestTombstoneKey = (requestId: string) => `manual_request_tombstone:${requestId}`;
 
 export class ManualOrderError extends Error {
   constructor(
@@ -28,6 +32,7 @@ export interface ManualOrderTotals {
   itemsSubtotal: number;
   shipping: number;
   total: number;
+  packDiscount?: number;
 }
 
 export interface CreateManualOrderResult {
@@ -136,9 +141,9 @@ export function createManualOrder(
       }
 
       const order = db
-        .prepare("SELECT id, subtotal, shipping, total FROM orders WHERE id = ?")
+        .prepare("SELECT id, subtotal, shipping, total, discount_amount FROM orders WHERE id = ?")
         .get(existing.order_id) as
-        | { id: string; subtotal: number; shipping: number; total: number }
+        | { id: string; subtotal: number; shipping: number; total: number; discount_amount: number }
         | undefined;
 
       if (!order) {
@@ -154,9 +159,16 @@ export function createManualOrder(
           itemsSubtotal: order.subtotal,
           shipping: order.shipping,
           total: order.total,
+          ...(order.discount_amount > 0 ? { packDiscount: order.discount_amount } : {}),
         },
         isReplay: true,
       };
+    }
+
+    // Deleted manual orders leave a tombstone (the FK forces row deletion), so a
+    // replay of the same request id can never create a second order.
+    if (db.prepare("SELECT 1 FROM app_state WHERE key = ?").get(manualRequestTombstoneKey(input.requestId))) {
+      throw new ManualOrderError(409, "Cette demande a déjà créé une commande, supprimée depuis.");
     }
 
     // 2. Validate aggregated quantities
@@ -199,10 +211,13 @@ export function createManualOrder(
       items.push(orderLineSnapshot(variantInfo, variantInfo.product.name, variantInfo.price, line.qty));
     }
 
-    const subtotal = items.reduce((sum, item) => sum + item.line_total, 0);
     const rules = getStoreSettings();
-    const shipping = shippingFor(subtotal, rules);
-    const total = subtotal + shipping;
+    const priced = priceOrderLines(
+      items.map((i) => ({ productId: i.product_id, qty: i.quantity, unitPrice: i.unit_price })),
+      getActivePacksFor(items.map((i) => i.product_id), db),
+      rules,
+    );
+    const { subtotal, shipping, total, discount } = priced;
 
     const orderId = `ord_${nanoid(12)}`;
     setAppState(orderRulesKey(orderId), JSON.stringify({ shippingFeeMad: rules.shippingFeeMad,
@@ -215,12 +230,14 @@ export function createManualOrder(
         id, customer_name, customer_phone, items_json, upsell_offer_json,
         upsell_status, upsell_items_json, subtotal, shipping, total,
         currency, created_at, updated_at, confirmation_status, address,
-        city_id, city_name, cod_status, source, assigned_to
+        city_id, city_name, cod_status, source, assigned_to,
+        discount_type, discount_value, discount_amount, pack_snapshot_json
       ) VALUES (
         @id, @customer_name, @customer_phone, @items_json, NULL,
         'declined', NULL, @subtotal, @shipping, @total,
         'MAD', @created_at, @updated_at, 'new', @address,
-        @city_id, @city_name, 'awaiting_payment', @source, NULL
+        @city_id, @city_name, 'awaiting_payment', @source, @assigned_to,
+        @discount_type, @discount, @discount, @pack_snapshot
       )`,
     ).run({
       id: orderId,
@@ -236,6 +253,10 @@ export function createManualOrder(
       city_id: cityId,
       city_name: cityName,
       source: canonical.source,
+      assigned_to: pickAssignee(db, rules.assignmentMode),
+      discount_type: discount > 0 ? "fixed" : "none",
+      discount,
+      pack_snapshot: discount > 0 ? JSON.stringify(priced.applications) : null,
     });
 
     // 6. Insert attribution note in order_contacts
@@ -269,6 +290,7 @@ export function createManualOrder(
         itemsSubtotal: subtotal,
         shipping,
         total,
+        ...(discount > 0 ? { packDiscount: discount } : {}),
       },
       isReplay: false,
     };

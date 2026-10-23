@@ -9,7 +9,7 @@ export function Cta() {
       <div className="mx-auto max-w-2xl px-4">
         <h2 className="font-heading text-2xl font-semibold">{cta.title}</h2>
         <p className="mt-2">{cta.text}</p>
-        <Link href={cta.href} className="mt-6 inline-flex h-12 items-center rounded-store bg-store-accent px-6 font-semibold text-white">
+        <Link href={cta.href} className="mt-6 inline-flex h-12 items-center rounded-store bg-store-accent px-6 font-semibold text-store-accent-fg">
           {cta.label}
         </Link>
       </div>

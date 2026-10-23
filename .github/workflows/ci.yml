@@ -4,12 +4,20 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -17,8 +25,8 @@ jobs:
       DELIVERY_PROVIDER: mock
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v4 # TODO: pin by SHA
+      - uses: actions/setup-node@v4 # TODO: pin by SHA
         with:
           node-version: 22
           cache: npm
@@ -37,3 +45,60 @@ jobs:
         run: |
           export NODE_OPTIONS="--import=$GITHUB_WORKSPACE/scripts/block-external-network.mjs"
           npm run test:bootstrap
+
+  release:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DELIVERY_PROVIDER: mock
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4 # TODO: pin by SHA
+      - uses: actions/setup-node@v4 # TODO: pin by SHA
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
+          echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(command -v chromium-browser || command -v chromium)" >> "$GITHUB_ENV"
+      - name: Build
+        run: |
+          export NODE_OPTIONS="--import=$GITHUB_WORKSPACE/scripts/block-external-network.mjs"
+          npm run build
+      - name: Release suites (loopback-only network)
+        run: |
+          export NODE_OPTIONS="--import=$GITHUB_WORKSPACE/scripts/block-external-network.mjs"
+          npm run test:integration
+          npm run test:fresh-install
+          npm run test:e2e-crm
+          npm run test:order-edits-browser
+
+  docker:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4 # TODO: pin by SHA
+      - run: docker build -t store-crm:ci .
+      - name: Container health smoke test
+        run: |
+          docker volume create store-crm-data
+          docker run --rm -v store-crm-data:/app/data alpine chown -R 1001:1001 /app/data
+          docker run -d --name store-crm-ci -p 3000:3000 \
+            -v store-crm-data:/app/data \
+            -e AUTH_SECRET="$(openssl rand -hex 32)" \
+            -e CRM_PUBLIC_URL=http://localhost:3000 \
+            -e SECURITY_ALLOWED_ORIGINS=http://localhost:3000 \
+            -e DELIVERY_PROVIDER=mock \
+            -e SECURITY_ACCEPT_GLOBAL_BUDGETS=1 \
+            store-crm:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/api/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs store-crm-ci
+          exit 1

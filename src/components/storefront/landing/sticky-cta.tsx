@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const LANDING_TOTAL_EVENT = "storefront:landing-total"; // dispatched by InlineOrderForm
+const LANDING_TOTAL_EVENT = "storefront:landing-total"; // dispatched by InlineOrderForm with the form total (shipping included)
 
 /** Mobile bottom bar shown once the order form scrolls out of view. */
 export function StickyCta({ label, currency, initialPrice }: { label: string; currency: string; initialPrice: number }) {
@@ -23,7 +23,7 @@ export function StickyCta({ label, currency, initialPrice }: { label: string; cu
     <div className={`fixed inset-x-0 bottom-0 z-30 border-t border-store-border bg-store-bg p-3 lg:hidden ${visible ? "" : "hidden"}`}>
       <button type="button"
         onClick={() => document.getElementById("commander")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-        className="h-12 w-full rounded-store bg-store-accent font-bold text-white">
+        className="h-12 w-full rounded-store bg-store-accent font-bold text-store-accent-fg">
         {label} · {price} {currency}
       </button>
     </div>

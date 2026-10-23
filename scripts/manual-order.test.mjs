@@ -407,6 +407,37 @@ if (childAction) {
     assert.equal(sub[0].status, "queued");
   });
 
+  test("manual order applies the quantity pack like checkout and survives deletion as a tombstone", () => {
+    const { changeOrderLifecycle } = loadSource("@/lib/services/order-lifecycle");
+    const ts = new Date().toISOString();
+    db.prepare(`INSERT INTO product_packs (id, product_id, quantity, price_mad, highlight, active, created_at, updated_at)
+      VALUES ('pack-3', 'prod-boots', 3, 900, 0, 1, ?, ?)`).run(ts, ts);
+    const requestId = crypto.randomUUID();
+    const input = manualOrderInputSchema.parse({
+      requestId,
+      customer: { name: "Pack Client", phone: "0699887766" },
+      items: [{ variantId: "var-38", qty: 2 }, { variantId: "var-39", qty: 1 }],
+      source: "manual_phone",
+    });
+    const result = createManualOrder(input, actorA);
+    // 3 * 350 = 1050 regular, pack 900 -> 150 saved, free shipping.
+    assert.deepEqual(result.totals, { itemsSubtotal: 1050, shipping: 0, total: 900, packDiscount: 150 });
+    const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(result.orderId);
+    assert.deepEqual([row.subtotal, row.discount_type, row.discount_value, row.discount_amount, row.total],
+      [1050, "fixed", 150, 150, 900]);
+    assert.equal(JSON.parse(row.pack_snapshot_json)[0].packId, "pack-3");
+    assert.equal(createManualOrder(input, actorA).totals.packDiscount, 150);
+
+    changeOrderLifecycle([result.orderId], "archive", { id: "admin", role: "admin" });
+    changeOrderLifecycle([result.orderId], "delete", { id: "admin", role: "admin" });
+    assert.equal(db.prepare("SELECT 1 FROM orders WHERE id = ?").get(result.orderId), undefined);
+    const before = db.prepare("SELECT COUNT(*) AS n FROM orders").get().n;
+    assert.throws(() => createManualOrder(input, actorA),
+      (e) => e instanceof ManualOrderError && e.status === 409 && /supprimée depuis/.test(e.message));
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM orders").get().n, before);
+    db.prepare("DELETE FROM product_packs WHERE id = 'pack-3'").run();
+  });
+
   test("two concurrent processes competing for same requestId create exactly one order", async () => {
     const requestId = crypto.randomUUID();
     const input = {

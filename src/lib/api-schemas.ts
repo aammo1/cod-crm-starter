@@ -8,6 +8,8 @@ export const crmOrderListQuerySchema = z.object({
     .optional(),
   q: z.string().trim().max(120).optional(),
   assignedTo: z.string().trim().max(64).optional(),
+  utm_source: z.string().trim().max(200).optional(),
+  utm_campaign: z.string().trim().max(200).optional(),
   callbackDue: z
     .string()
     .optional()

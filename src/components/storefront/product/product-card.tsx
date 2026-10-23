@@ -21,7 +21,7 @@ export function ProductCard({ product, priority = false }: { product: Storefront
           />
         )}
         {product.badge && (
-          <span className="absolute start-2 top-2 rounded-store bg-store-accent px-2 py-0.5 text-xs font-semibold text-white">
+          <span className="absolute start-2 top-2 rounded-store bg-store-accent px-2 py-0.5 text-xs font-semibold text-store-accent-fg">
             {product.badge}
           </span>
         )}

@@ -7,6 +7,7 @@ import {
   type SerializableProduct,
 } from "@/components/crm/manual-order-form";
 import { requireUser } from "@/lib/auth-guards";
+import { getLead } from "@/lib/services/checkout-leads";
 import { listProducts } from "@/lib/services/catalog";
 import { listCities } from "@/lib/services/orders";
 import { getStoreSettings } from "@/lib/services/store-settings";
@@ -16,8 +17,10 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-export default async function NewManualOrderPage() {
+export default async function NewManualOrderPage({ searchParams }: { searchParams: Promise<{ leadId?: string }> }) {
   await requireUser();
+  const { leadId } = await searchParams;
+  const lead = typeof leadId === "string" && leadId.length <= 64 ? getLead(leadId) : null;
 
   const allProducts = listProducts();
   const cities = listCities();
@@ -30,6 +33,7 @@ export default async function NewManualOrderPage() {
       id: product.id,
       name: product.name,
       price: product.price,
+      packs: product.packs,
       variants: product.variants
         .filter((variant) => variant.active)
         .map((variant) => ({
@@ -60,7 +64,8 @@ export default async function NewManualOrderPage() {
         </p>
       </div>
 
-      <ManualOrderForm products={products} cities={cities} shippingRules={{ shippingFeeMad, freeShippingThresholdMad }} />
+      <ManualOrderForm products={products} cities={cities} shippingRules={{ shippingFeeMad, freeShippingThresholdMad }}
+        initialCustomer={lead ? { name: lead.name === "Sans nom" ? "" : lead.name, phone: lead.phone } : undefined} />
     </div>
   );
 }

@@ -22,12 +22,14 @@ export function verifyPassword(password: string, stored: string): boolean {
 
 let activeVerifications = 0;
 
-/** Fail fast under saturation; never build an unbounded hash-work queue. */
-export async function verifyPasswordAsync(password: string, stored: string): Promise<boolean> {
-  if (activeVerifications >= 4) return false;
+export type PasswordCheck = "ok" | "mismatch" | "busy";
+
+/** Fail fast under saturation; never build an unbounded hash-work queue. "busy" is not a mismatch. */
+export async function verifyPasswordStatus(password: string, stored: string): Promise<PasswordCheck> {
+  if (activeVerifications >= 4) return "busy";
   const parts = stored.split("$");
   if (parts.length !== 3 || parts[0] !== "scrypt" ||
-      !/^[a-f0-9]{32}$/i.test(parts[1]) || !/^[a-f0-9]{128}$/i.test(parts[2])) return false;
+      !/^[a-f0-9]{32}$/i.test(parts[1]) || !/^[a-f0-9]{128}$/i.test(parts[2])) return "mismatch";
   const salt = Buffer.from(parts[1], "hex");
   const expected = Buffer.from(parts[2], "hex");
   activeVerifications++;
@@ -35,6 +37,11 @@ export async function verifyPasswordAsync(password: string, stored: string): Pro
     const actual = await new Promise<Buffer>((resolve, reject) => {
       scrypt(password, salt, KEY_LEN, (error, key) => error ? reject(error) : resolve(key));
     });
-    return timingSafeEqual(actual, expected);
+    return timingSafeEqual(actual, expected) ? "ok" : "mismatch";
   } finally { activeVerifications--; }
+}
+
+/** Boolean form: saturation reads as false. Login must use verifyPasswordStatus. */
+export async function verifyPasswordAsync(password: string, stored: string): Promise<boolean> {
+  return (await verifyPasswordStatus(password, stored)) === "ok";
 }

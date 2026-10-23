@@ -33,7 +33,8 @@ import {
 } from "@/lib/manual-order-schema";
 import { normalizeMaPhone } from "@/lib/phone";
 import { formatMad, shippingFor, type ShippingRules } from "@/lib/pricing";
-import type { VariantOption } from "@/lib/commerce-types";
+import { applyPacks } from "@/lib/pack-pricing";
+import type { ProductPack, VariantOption } from "@/lib/commerce-types";
 
 export interface SerializableVariant {
   variantId: string;
@@ -47,6 +48,8 @@ export interface SerializableProduct {
   id: string;
   name: string;
   price: number;
+  /** Active quantity packs, display preview only; the server recomputes. */
+  packs?: ProductPack[];
   variants: SerializableVariant[];
 }
 
@@ -59,6 +62,8 @@ export interface ManualOrderFormProps {
   products: SerializableProduct[];
   cities: SerializableCity[];
   shippingRules: ShippingRules;
+  /** Optional prefill (abandoned checkout lead). */
+  initialCustomer?: { name: string; phone: string };
 }
 
 interface OrderLineItem {
@@ -102,7 +107,7 @@ function isPayloadDifferent(a: ManualOrderInput, b: ManualOrderInput): boolean {
   return false;
 }
 
-export function ManualOrderForm({ products, cities, shippingRules }: ManualOrderFormProps) {
+export function ManualOrderForm({ products, cities, shippingRules, initialCustomer }: ManualOrderFormProps) {
   const router = useRouter();
   const formUid = useId();
 
@@ -110,8 +115,8 @@ export function ManualOrderForm({ products, cities, shippingRules }: ManualOrder
   const [requestId, setRequestId] = useState<string>(() => crypto.randomUUID());
 
   // Customer info
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerName, setCustomerName] = useState(initialCustomer?.name ?? "");
+  const [customerPhone, setCustomerPhone] = useState(initialCustomer?.phone ?? "");
   const [source, setSource] = useState<ManualOrderSource>("manual_whatsapp");
 
   // Optional fields
@@ -199,8 +204,21 @@ export function ManualOrderForm({ products, cities, shippingRules }: ManualOrder
     return sub;
   }, [lines, productsMap, getLineVariant]);
 
-  const shipping = itemsSubtotal === 0 ? 0 : shippingFor(itemsSubtotal, shippingRules);
-  const estimatedTotal = itemsSubtotal + shipping;
+  const packDiscount = useMemo(() => {
+    const packsByProduct: Record<string, ProductPack[]> = {};
+    const priced: { productId: string; qty: number; unitPrice: number }[] = [];
+    for (const line of lines) {
+      const p = productsMap.get(line.productId);
+      if (p && getLineVariant(line)) {
+        packsByProduct[p.id] = p.packs ?? [];
+        priced.push({ productId: p.id, qty: line.quantity, unitPrice: p.price });
+      }
+    }
+    return applyPacks(priced, packsByProduct).discount;
+  }, [lines, productsMap, getLineVariant]);
+
+  const shipping = itemsSubtotal === 0 ? 0 : shippingFor(itemsSubtotal - packDiscount, shippingRules);
+  const estimatedTotal = itemsSubtotal - packDiscount + shipping;
 
   // Line modification handlers
   function handleAddLine() {
@@ -994,6 +1012,12 @@ export function ManualOrderForm({ products, cities, shippingRules }: ManualOrder
                 <span className="text-muted-foreground">Sous-total : </span>
                 <span className="font-semibold tabular-nums text-foreground">{formatMad(itemsSubtotal)}</span>
               </div>
+              {packDiscount > 0 && (
+                <div>
+                  <span className="text-muted-foreground">Remise pack : </span>
+                  <span className="font-semibold tabular-nums text-foreground">-{formatMad(packDiscount)}</span>
+                </div>
+              )}
               <div>
                 <span className="text-muted-foreground">Livraison : </span>
                 <span className="font-semibold tabular-nums text-foreground">

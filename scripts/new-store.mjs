@@ -11,10 +11,14 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import sharp from "sharp";
 import { renderConfig } from "./new-store/template.mjs";
+import { envText, envValues, PRODUCTION_ENV_HEADER } from "./new-store/env.mjs";
 import { copyPresets } from "./new-store/copy-presets.mjs";
+import { categorySlugs, normalizeDomain, randomStoreSlug, slugify, slugifyWithArabic } from "./new-store/slug.mjs";
+
+export { slugify };
 
 const MARKER = "// new-store:template";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -41,15 +45,6 @@ const fail = (message) => {
 // ---------- normalisers / validators (shared by interactive and --answers) ----------
 const str = (v) => (v == null ? "" : String(v).trim());
 
-export function slugify(value) {
-  return str(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
 export function normalizeWhatsapp(value) {
   const digits = str(value).replace(/[\s.\-()]/g, "");
   let m;
@@ -68,15 +63,17 @@ export function normalizeHex(value) {
 const FIELDS = [
   { key: "name", prompt: "Nom de la boutique", required: true, group: "Identité",
     parse: (v) => { if (!v || v.length > 60) throw new FieldError("1 à 60 caractères attendus"); return v; } },
-  { key: "slug", prompt: "Slug", group: "Identité", default: (a) => slugify(a.name),
+  { key: "slug", prompt: "Slug", group: "Identité", default: (a) => {
+      const slug = slugifyWithArabic(a.name).slice(0, 40).replace(/-+$/, "");
+      if (slug.length >= 2) return slug;
+      const fallback = randomStoreSlug();
+      console.log(`  Avis : impossible de dériver un slug du nom « ${a.name} » ; « ${fallback} » proposé. Confirmez-le ou indiquez le vôtre (champ « slug »).`);
+      return fallback;
+    },
     parse: (v) => { if (!/^[a-z0-9-]{2,40}$/.test(v)) throw new FieldError("2 à 40 caractères : a-z, 0-9, tiret"); return v; } },
   { key: "domain", prompt: "Domaine (https://…)", required: true, group: "Identité",
     parse: (v) => {
-      const withScheme = /^https?:\/\//i.test(v) ? v : `https://${v}`;
-      let url;
-      try { url = new URL(withScheme); } catch { throw new FieldError("URL invalide (ex. https://maboutique.ma)"); }
-      if (!url.hostname) throw new FieldError("URL invalide (ex. https://maboutique.ma)");
-      return url.origin;
+      try { return normalizeDomain(v); } catch (error) { throw new FieldError(error.message); }
     } },
   { key: "locale", prompt: "Langue (fr/ar)", default: () => "fr",
     parse: (v) => { if (v !== "fr" && v !== "ar") throw new FieldError("« fr » ou « ar » attendu"); return v; } },
@@ -113,14 +110,7 @@ const FIELDS = [
     parse: (v) => {
       const labels = (Array.isArray(v) ? v : str(v).split(",")).map(str).filter(Boolean);
       if (labels.length === 0 || labels.length > 12) throw new FieldError("1 à 12 catégories attendues");
-      const seen = new Set();
-      return labels.map((label) => {
-        const slug = slugify(label);
-        if (!slug) throw new FieldError(`catégorie invalide : « ${label} »`);
-        if (seen.has(slug)) throw new FieldError(`catégorie en double : « ${label} »`);
-        seen.add(slug);
-        return { slug, label };
-      });
+      return categorySlugs(labels);
     } },
   { key: "metaPixelId", prompt: "Meta Pixel ID (optionnel)", optional: true, group: "Suivi (optionnel)",
     parse: (v) => { if (v && !/^\d{5,20}$/.test(v)) throw new FieldError("5 à 20 chiffres attendus"); return v; } },
@@ -260,11 +250,15 @@ const contrast = (a, b) => {
 };
 const mixIntoWhite = (hex, amount) => toHex(rgb(hex).map((n) => 255 * (1 - amount) + n * amount));
 
+export const accentForeground = (accent) =>
+  contrast(accent, "#ffffff") >= contrast(accent, "#111827") ? "#ffffff" : "#111827";
+
 export function deriveColors(primary, accent) {
   return {
     primary,
     primaryForeground: contrast(primary, "#ffffff") >= contrast(primary, "#111111") ? "#ffffff" : "#111111",
     accent,
+    accentForeground: accentForeground(accent),
     background: "#ffffff",
     foreground: "#111827",
     muted: mixIntoWhite(primary, 0.06),
@@ -294,6 +288,7 @@ const hash8 = (buf) => crypto.createHash("sha256").update(buf).digest("hex").sli
 
 async function buildBrandAssets(answers, colors, brandDir) {
   fs.mkdirSync(brandDir, { recursive: true });
+  const existing = new Set(fs.readdirSync(brandDir));
   const input = answers.logoPath ? fs.readFileSync(answers.logoPath) : monogramSvg(answers.name, colors);
   const isSvg = !answers.logoPath || /\.svg$/i.test(answers.logoPath);
   const base = () => sharp(input, isSvg ? { density: 300 } : {}).rotate();
@@ -332,14 +327,12 @@ async function buildBrandAssets(answers, colors, brandDir) {
   }
   fs.writeFileSync(path.join(brandDir, heroName), heroBuf);
 
-  // Remove superseded files created by earlier wizard runs (only these patterns).
+  // Superseded files from earlier wizard runs (only these patterns) are removed by
+  // the caller after the TypeScript check passes.
   const keep = new Set([logoName, iconName, heroName]);
-  for (const file of fs.readdirSync(brandDir)) {
-    if (keep.has(file)) continue;
-    if (/^logo-[0-9a-f]{8}\.webp$/.test(file) || /^icon-[0-9a-f]{8}\.png$/.test(file) || /^hero-[0-9a-f]{8}\.webp$/.test(file)) {
-      fs.rmSync(path.join(brandDir, file));
-    }
-  }
+  const obsolete = existing.size === 0 ? [] : [...existing].filter((file) => !keep.has(file) &&
+    (/^logo-[0-9a-f]{8}\.webp$/.test(file) || /^icon-[0-9a-f]{8}\.png$/.test(file) || /^hero-[0-9a-f]{8}\.webp$/.test(file)));
+  const created = [...keep].filter((file) => !existing.has(file));
 
   const displayHeight = 48;
   return {
@@ -348,35 +341,8 @@ async function buildBrandAssets(answers, colors, brandDir) {
     logoHeight: displayHeight,
     icon: `/brand/${iconName}`,
     heroImage: `/brand/${heroName}`,
-  };
-}
-
-// ---------- env files ----------
-const secret = () => crypto.randomBytes(32).toString("base64url");
-const q = (v) => `"${String(v).replace(/(["\\$`])/g, "\\$1")}"`;
-
-function envText(values, header) {
-  return `${header}${Object.entries(values).map(([k, v]) => `${k}=${q(v)}`).join("\n")}\n`;
-}
-
-function envValues(a, { production }) {
-  const origin = production ? a.domain : "http://localhost:3000";
-  return {
-    DB_PATH: production ? "/app/data/crm.db" : "./data/crm.db",
-    UPLOAD_DIR: production ? "/app/data/uploads" : "./data/uploads",
-    AUTH_SECRET: secret(),
-    STOREFRONT_API_KEY: secret(),
-    CATALOG_AGENT_KEY: secret(),
-    CRM_PUBLIC_URL: origin,
-    SECURITY_ALLOWED_ORIGINS: origin,
-    DELIVERY_PROVIDER: production ? "ozon" : "mock",
-    OZON_CLIENT_ID: a.ozonClientId,
-    OZON_API_KEY: a.ozonApiKey,
-    OZON_BASE_URL: "https://api.ozonexpress.ma",
-    FACEBOOK_PIXEL_ID: a.metaPixelId,
-    FACEBOOK_ACCESS_TOKEN: a.metaAccessToken,
-    TIKTOK_PIXEL_ID: a.tiktokPixelId,
-    TIKTOK_ACCESS_TOKEN: a.tiktokAccessToken,
+    obsolete,
+    created,
   };
 }
 
@@ -398,6 +364,15 @@ function readEnvValue(file, key) {
   return undefined;
 }
 
+function writeTemplateVersion(root) {
+  let commit = "unknown";
+  try {
+    commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || "unknown";
+  } catch {}
+  const info = { template: "store-crm-boilerplate", commit, createdAt: new Date().toISOString() };
+  fs.writeFileSync(path.join(root, ".template-version"), `${JSON.stringify(info, null, 2)}\n`);
+}
+
 // ---------- main ----------
 async function main() {
   const configPath = path.join(ROOT, "store.config.ts");
@@ -414,6 +389,10 @@ async function main() {
     : await collectInteractive(SKIP_USER);
 
   const colors = deriveColors(answers.primaryColor, answers.accentColor);
+  const accentRatio = contrast(answers.accentColor, colors.accentForeground);
+  if (accentRatio < 4.5) {
+    console.log(`Avis : la couleur d'accent ${answers.accentColor} n'atteint pas le contraste WCAG AA (4,5:1) avec le texte des boutons (${accentRatio.toFixed(2).replace(".", ",")}:1). Choisissez une couleur plus claire ou plus foncée.`);
+  }
   const brandDir = path.join(ROOT, "public", "brand");
   const assets = await buildBrandAssets(answers, colors, brandDir);
   const copy = copyPresets(answers.locale, { name: answers.name, city: answers.city, niche: answers.niche });
@@ -446,12 +425,21 @@ async function main() {
     const tsc = spawnSync("npx", ["tsc", "--noEmit", "-p", "."], { cwd: ROOT, encoding: "utf8" });
     if (tsc.status !== 0) {
       fs.writeFileSync(configPath, previousConfig);
+      for (const file of assets.created) fs.rmSync(path.join(brandDir, file), { force: true });
       console.error(`${tsc.stdout}${tsc.stderr}`);
-      fail("Le store.config.ts généré ne passe pas la vérification TypeScript ; l'ancien fichier a été restauré.");
+      fail(
+        "Le store.config.ts généré ne passe pas la vérification TypeScript ; l'ancien fichier a été restauré.\n" +
+          `Fichiers restaurés : store.config.ts. Anciens logos/icônes/images conservés dans public/brand${assets.created.length ? `, nouveaux fichiers supprimés (${assets.created.join(", ")})` : ""}.`,
+      );
     }
   } else {
     console.log("Vérification TypeScript ignorée (tsconfig.json ou node_modules absent).");
   }
+
+  // New config verified: now it is safe to drop superseded brand assets.
+  for (const file of assets.obsolete) fs.rmSync(path.join(brandDir, file), { force: true });
+
+  writeTemplateVersion(ROOT);
 
   // .env files (secrets never printed)
   const envLocal = path.join(ROOT, ".env.local");
@@ -463,7 +451,7 @@ async function main() {
   }
   fs.writeFileSync(
     path.join(ROOT, ".env.production.example"),
-    envText(envValues(answers, { production: true }), "# Coller dans Coolify → Environment Variables. Ne pas committer.\n"),
+    envText(envValues(answers, { production: true }), PRODUCTION_ENV_HEADER),
     { mode: 0o600 },
   );
   ensureGitignore(ROOT);

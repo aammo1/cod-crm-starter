@@ -48,7 +48,8 @@ export function buyBoxLabels(locale: Locale): BuyBoxLabels {
 const LANDING_KEYS = [
   "chooseOption", "packs", "bestValue", "differentOptions", "unit", "orderNow", "confirmOrder", "fullName", "phone",
   "phonePlaceholder", "phoneInvalid", "nameRequired", "cod", "sending", "soldOut", "subtotal", "shipping",
-  "freeShipping", "total", "genericError", "retryLater", "piece", "pieces", "save",
+  "freeShipping", "total", "genericError", "retryLater", "piece", "pieces", "save", "retryLaterSeconds",
+  "checkoutUncertain", "checkoutUncertainLocked", "phoneRecentlyOrdered", "packDiscount", "errorRetry", "contactWhatsapp", "leadNotice",
 ] as const;
 export type LandingLabels = Record<(typeof LANDING_KEYS)[number], string> & { currency: string };
 

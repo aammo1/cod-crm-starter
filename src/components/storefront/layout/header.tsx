@@ -14,7 +14,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-store-border bg-store-bg">
       <div className="relative mx-auto flex h-16 max-w-6xl items-center gap-2 px-4">
-        <MobileMenu links={links} label={t(locale, "menu")} />
+        <MobileMenu links={links} label={t(locale, "menu")} navLabel={t(locale, "mainMenu")} />
         <Link href="/" className="inline-flex shrink-0 items-center">
           <StoreImage
             src={brand.logo}

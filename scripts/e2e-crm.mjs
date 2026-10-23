@@ -19,7 +19,7 @@ const agentPassword = randomUUID();
 const newAgentPassword = randomUUID();
 Object.assign(process.env, { DB_PATH: `${temp}/crm.db`, UPLOAD_DIR: `${temp}/uploads`,
   AUTH_SECRET: randomUUID() + randomUUID(), AUTH_TRUST_HOST: "true", AUTH_URL: BASE_URL,
-  SECURITY_ALLOWED_ORIGINS: BASE_URL, DELIVERY_PROVIDER: "mock", OZON_CLIENT_ID: "", OZON_API_KEY: "",
+  SECURITY_ALLOWED_ORIGINS: BASE_URL, DELIVERY_PROVIDER: "mock", SECURITY_ACCEPT_GLOBAL_BUDGETS: "1", CRM_PUBLIC_URL: BASE_URL, OZON_CLIENT_ID: "", OZON_API_KEY: "",
   FACEBOOK_PIXEL_ID: "", FACEBOOK_ACCESS_TOKEN: "", OPENROUTER_API_KEY: "", CATALOG_AGENT_KEY: "", STOREFRONT_API_KEY: "" });
 
 function createTestOrder(db) {

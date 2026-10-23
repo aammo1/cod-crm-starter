@@ -14,6 +14,7 @@ export default {
       primary: "#1f2937",
       primaryForeground: "#ffffff",
       accent: "#d97706",
+      accentForeground: "#111827", // white on this accent is only 3.2:1; dark text is 5.6:1
       background: "#ffffff",
       foreground: "#111827",
       muted: "#f3f4f6",
@@ -75,6 +76,7 @@ export default {
     sizeGuides: {},
   },
   landing: { stickyCta: true, index: false },
+  leads: { enabled: false },
   legal: {
     about: "Ma Boutique est une boutique en ligne marocaine proposant des produits sélectionnés avec soin.",
     shipping: "Livraison partout au Maroc sous 2 à 4 jours ouvrables. Paiement à la livraison.",

@@ -8,7 +8,7 @@ import { storefrontError } from "@/lib/storefront-auth";
 import { storefrontMediaOrigin, toStorefrontCatalogProduct } from "@/lib/storefront-catalog-dto";
 import type { CommerceProduct } from "@/lib/commerce-types";
 
-class PhoneQuotaError extends StorefrontOrderError {
+export class PhoneQuotaError extends StorefrontOrderError {
   constructor(readonly retryAfter: number) {
     super(429, "RATE_LIMITED", "Réessayez dans quelques instants.");
   }

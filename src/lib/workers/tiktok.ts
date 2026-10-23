@@ -1,5 +1,8 @@
 import { tiktokEnabled, tiktokTick } from "@/lib/services/tiktok";
-import { setAppState } from "@/lib/services/app-state";
+import { log } from "@/lib/log";
+import { recordWorkerError, recordWorkerTick } from "@/lib/services/worker-status";
+
+export const WORKER_INTERVAL_MS = 5000;
 
 export function startTikTokWorker() {
   if (!tiktokEnabled()) return;
@@ -10,12 +13,15 @@ export function startTikTokWorker() {
     if (running) return;
     running = true;
     try {
-      setAppState("tiktok_last_tick", new Date().toISOString());
       await tiktokTick();
+      recordWorkerTick("tiktok");
     }
-    catch { console.error("[tiktok] conversion worker failed; will retry"); }
+    catch (err) {
+      log.error("tiktok.worker_failed", { error: err });
+      recordWorkerError("tiktok", err);
+    }
     finally { running = false; }
   };
-  global.__crmTikTokWorker = setInterval(() => void run(), 5000);
+  global.__crmTikTokWorker = setInterval(() => void run(), WORKER_INTERVAL_MS);
   void run();
 }

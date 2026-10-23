@@ -30,6 +30,8 @@ export const variantInputSchema = z.object({
   id: text(200).optional(),
   sku: text(100).refine((value) => { try { validateVariantSku(value); return true; } catch { return false; } }, "SKU invalide.").optional(),
   label: text(500).optional(), options: optionsSchema, images: imagesSchema.optional(), active: z.boolean().optional(),
+  /** Admin-only cost of goods, integer MAD. Omitted keeps the stored value; null clears it. */
+  costPrice: z.number().int().safe().min(0).max(1_000_000).nullable().optional(),
 }).strict();
 
 export const productBaseSchema = z.object({

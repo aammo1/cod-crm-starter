@@ -54,6 +54,7 @@
   --color-store-primary: var(--store-primary);
   --color-store-primary-fg: var(--store-primary-fg);
   --color-store-accent: var(--store-accent);
+  --color-store-accent-fg: var(--store-accent-fg);
   --color-store-bg: var(--store-bg);
   --color-store-fg: var(--store-fg);
   --color-store-muted: var(--store-muted);

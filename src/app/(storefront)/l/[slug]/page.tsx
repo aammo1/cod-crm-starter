@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { storeConfig } from "@/config";
+import { storeConfig, whatsappLink } from "@/config";
 import { landingLabels, t } from "@/config/i18n";
 import { getProduct, getShopSettings } from "@/lib/storefront/data";
 import { customSections } from "@/custom";
@@ -9,6 +9,8 @@ import { InlineOrderForm } from "@/components/storefront/landing/inline-order-fo
 import { LandingFaq } from "@/components/storefront/landing/landing-faq";
 import { LandingHero } from "@/components/storefront/landing/landing-hero";
 import { StickyCta } from "@/components/storefront/landing/sticky-cta";
+import { BreadcrumbJsonLd } from "@/components/storefront/seo/breadcrumb-json-ld";
+import { baseOpenGraph } from "@/lib/storefront/seo";
 import { ProductJsonLd } from "@/components/storefront/product/product-json-ld";
 import { Reviews } from "@/components/storefront/product/reviews";
 import { TrustBadges } from "@/components/storefront/product/trust-badges";
@@ -27,8 +29,10 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   return {
     title: `${product.name}`,
     description,
+    alternates: { canonical: `/l/${product.slug}` },
     robots: { index: storeConfig.landing.index },
-    openGraph: { title: product.name, description, ...(product.images[0] ? { images: [product.images[0]] } : {}) },
+    openGraph: { ...baseOpenGraph({ title: product.name, description, images: product.images.slice(0, 1) }), type: "website", url: `/l/${product.slug}` },
+    twitter: { card: "summary_large_image", title: product.name, description },
   };
 }
 
@@ -49,15 +53,25 @@ export default async function LandingPage({ params }: Params) {
   });
   const labels = landingLabels(locale);
 
+  // Same total the order form shows (net of packs, shipping included) so the CTA never disagrees with it.
+  const initialNet = product.packs.find((p) => p.highlight)?.price ?? product.price;
+  const initialTotal = initialNet + (initialNet >= settings.freeShippingThresholdMad ? 0 : settings.shippingFeeMad);
+
   return (
     <main className="mx-auto max-w-6xl px-4 pt-6 pb-28 lg:pb-12">
-      <ProductJsonLd product={product} />
+      <ProductJsonLd product={product} shippingFeeMad={settings.shippingFeeMad} />
+      <BreadcrumbJsonLd items={[
+        { name: storeConfig.name, path: "/" },
+        { name: product.name, path: `/l/${product.slug}` },
+      ]} />
       <div className="grid gap-6 lg:grid-cols-2 lg:items-start lg:gap-10">
         <LandingHero product={product} initialImages={defaultVariant?.images} />
         <div className="space-y-4 lg:sticky lg:top-4">
           <InlineOrderForm
             labels={labels}
             storeSlug={storeConfig.slug}
+            leads={storeConfig.leads.enabled}
+            whatsappHref={whatsappLink()}
             shippingFeeMad={settings.shippingFeeMad}
             freeShippingThresholdMad={settings.freeShippingThresholdMad}
             product={{
@@ -82,14 +96,14 @@ export default async function LandingPage({ params }: Params) {
         <Reviews slug={product.slug} />
         <LandingFaq />
         <div className="text-center">
-          <a href="#commander" className="inline-flex h-14 items-center rounded-store bg-store-accent px-8 text-lg font-bold text-white">
+          <a href="#commander" className="inline-flex h-14 items-center rounded-store bg-store-accent px-8 text-lg font-bold text-store-accent-fg">
             {t(locale, "orderNow")}
           </a>
         </div>
       </div>
 
       {storeConfig.landing.stickyCta && (
-        <StickyCta label={labels.orderNow} currency={labels.currency} initialPrice={product.packs.find((p) => p.highlight)?.price ?? product.price} />
+        <StickyCta label={labels.orderNow} currency={labels.currency} initialPrice={initialTotal} />
       )}
     </main>
   );

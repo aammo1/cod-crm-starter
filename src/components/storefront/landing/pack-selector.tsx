@@ -32,7 +32,7 @@ export function PackSelector({ packs, basePrice, qty, onChange, labels }: {
             }`}
           >
             {p.highlight && (
-              <span className="absolute -top-2.5 end-3 rounded-store bg-store-accent px-2 py-0.5 text-xs font-semibold text-white">
+              <span className="absolute -top-2.5 end-3 rounded-store bg-store-accent px-2 py-0.5 text-xs font-semibold text-store-accent-fg">
                 {p.label ?? labels.bestValue}
               </span>
             )}

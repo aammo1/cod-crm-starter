@@ -9,7 +9,9 @@ export const playfair = localFont({
   variable: "--font-playfair",
   fallback: ["Georgia", "Times New Roman", "serif"],
   display: "swap",
-  preload: false,
+  // Playfair is the default heading font (store.config.ts brand.fonts.heading), so it is preloaded.
+  // next/font needs static options; the CRM layout shares this object.
+  preload: true,
 });
 
 export const inter = localFont({

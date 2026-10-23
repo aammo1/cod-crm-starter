@@ -22,6 +22,7 @@ test("production mock startup creates an empty isolated CRM and protects operati
   await new Promise((resolve) => socket.close(resolve));
   const origin = `http://127.0.0.1:${port}`;
   const dbPath = path.join(temp, "crm.db");
+  const healthToken = randomBytes(32).toString("hex");
   // Deliberate env allowlist: never inherit courier/Meta/assistant/catalog secrets.
   const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: root,
@@ -36,6 +37,9 @@ test("production mock startup creates an empty isolated CRM and protects operati
       DB_PATH: dbPath,
       UPLOAD_DIR: path.join(temp, "uploads"),
       DELIVERY_PROVIDER: "mock",
+      SECURITY_ACCEPT_GLOBAL_BUDGETS: "1",
+      CRM_PUBLIC_URL: origin,
+      HEALTH_DETAILS_TOKEN: healthToken,
       NODE_OPTIONS: `--import=${path.join(root, "scripts/block-external-network.mjs")}`,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -50,7 +54,7 @@ test("production mock startup creates an empty isolated CRM and protects operati
     for (let attempt = 0; attempt < 150; attempt++) {
       assert.equal(child.exitCode, null, output);
       try {
-        const response = await fetch(`${origin}/api/health`);
+        const response = await fetch(`${origin}/api/health`, { headers: { Authorization: `Bearer ${healthToken}` } });
         if (response.ok) { health = await response.json(); break; }
       } catch { /* Wait for production server to bind. */ }
       await new Promise((resolve) => setTimeout(resolve, 200));

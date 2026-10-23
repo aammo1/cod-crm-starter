@@ -18,7 +18,7 @@ RUN DELIVERY_PROVIDER=mock DB_PATH=/tmp/crm-build-must-not-exist/crm.db npm run 
 # ---- runner ----
 FROM node:22-alpine AS runner
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 DB_PATH=/app/data/crm.db UPLOAD_DIR=/app/data/uploads DELIVERY_PROVIDER=mock PORT=3000 AUTH_TRUST_HOST=true
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 DB_PATH=/app/data/crm.db UPLOAD_DIR=/app/data/uploads PORT=3000 AUTH_TRUST_HOST=true
 ENV HOSTNAME="0.0.0.0"
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 --ingroup nodejs nextjs

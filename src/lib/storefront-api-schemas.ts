@@ -11,7 +11,23 @@ export const storefrontRequestKeySchema = z.string().regex(/^[A-Za-z0-9._:-]{8,1
  * not arbitrary forwarded headers. sourceUrl is stripped to origin/path by the
  * commerce service before hashing/persistence; cookies are explicitly allowlisted.
  */
+const noControl = (value: string) => !/[\u0000-\u001f\u007f]/.test(value);
+/** First-touch campaign fields. Informational only, never used for pricing. Each field is
+ * validated on its own by the checkout route so a bad value is dropped, not fatal. */
+export const orderAttributionFields = {
+  utm_source: z.string().trim().max(200).refine(noControl).optional(),
+  utm_medium: z.string().trim().max(200).refine(noControl).optional(),
+  utm_campaign: z.string().trim().max(200).refine(noControl).optional(),
+  utm_content: z.string().trim().max(200).refine(noControl).optional(),
+  utm_term: z.string().trim().max(200).refine(noControl).optional(),
+  referrerHost: z.string().max(200).regex(/^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/).optional(),
+  landingPath: z.string().max(200).regex(/^\/[^\s?#\u0000-\u001f\u007f]*$/).optional(),
+  clickIdType: z.enum(["fbclid", "ttclid", "gclid", "sccid"]).optional(),
+};
+export const ORDER_ATTRIBUTION_KEYS = Object.keys(orderAttributionFields) as Array<keyof typeof orderAttributionFields>;
+
 export const storefrontAttributionSchema = z.object({
+  ...orderAttributionFields,
   eventId: z.string().uuid(),
   sourceUrl: z.string().url().max(2048).refine((value) => {
     const url = new URL(value);

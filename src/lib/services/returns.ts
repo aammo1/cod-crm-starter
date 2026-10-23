@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { getDb } from "@/lib/db";
-import { getDispatchedVariants } from "@/lib/services/inventory";
+import { closeReturnWithoutUnits as closeInventoryReturn, getDispatchedVariants } from "@/lib/services/inventory";
 import { insertContact } from "@/lib/services/orders";
 
 export type ReturnStatus = "returning" | "received" | "inspected";
@@ -117,4 +117,32 @@ export function markReturnReceived(id: string, actor: string): ReturnRow | null 
     console.log(`[returns] retour ${id} marqué « reçu » par ${actor}`);
   }
   return getReturn(id);
+}
+
+export type ReturnCloseOutcome = "closed_empty" | "lost";
+
+/**
+ * Closes a received return with zero units. Stock is untouched (the inventory
+ * service finalizes the row without any movement); the outcome and reason are
+ * stored in `reason` as "[outcome] reason".
+ */
+export function closeReturnWithoutUnits(
+  id: string,
+  outcome: ReturnCloseOutcome,
+  reason: string,
+  actor: string,
+): ReturnRow {
+  const db = getDb();
+  return db.transaction(() => {
+    const current = getReturn(id);
+    if (!current) throw new Error("Retour introuvable.");
+    const submission = db.prepare("SELECT order_id FROM courier_submissions WHERE id = ?")
+      .get(current.submissionId) as { order_id: string } | undefined;
+    if (!submission) throw new Error("Soumission transporteur introuvable.");
+    const { alreadyClosed } = closeInventoryReturn(current.submissionId, submission.order_id, actor);
+    if (!alreadyClosed) {
+      db.prepare("UPDATE returns SET reason = ? WHERE id = ?").run(`[${outcome}] ${reason}`, id);
+    }
+    return getReturn(id)!;
+  }).immediate();
 }

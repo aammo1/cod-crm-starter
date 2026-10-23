@@ -25,6 +25,8 @@ import {
   type DashboardTransitRow,
 } from "@/lib/services/dashboard";
 import { SUBMISSION_STATUS_LABELS } from "@/components/crm/status-badge";
+import { KpiSection } from "@/components/crm/kpi-section";
+import { getKpis, resolveKpiRange } from "@/lib/services/kpis";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -368,8 +370,17 @@ function SubCount({
 
 // --- Page.
 
-export default async function CrmDashboardPage() {
-  await requireUser();
+export default async function CrmDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const user = await requireUser();
+  const sp = await searchParams;
+  const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);
+  const { preset, from, to } = resolveKpiRange({ range: one(sp.range), from: one(sp.from), to: one(sp.to) });
+  // Role is enforced inside getKpis: agents never receive money fields.
+  const kpis = getKpis({ from, to, role: user.role === "admin" ? "admin" : "agent" });
   const data = getDashboard();
   const { syncHealth } = data;
 
@@ -383,6 +394,8 @@ export default async function CrmDashboardPage() {
           Données à jour au {formatCasablanca(data.generatedAt)} (Casablanca)
         </p>
       </div>
+
+      <KpiSection kpis={kpis} preset={preset} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <DashboardCard

@@ -7,4 +7,6 @@ export interface FunnelProps {
   whatsapp: string;
   shippingFeeMad: number;
   freeShippingThresholdMad: number;
+  /** store.config leads.enabled: abandoned-lead capture + consent notice. */
+  leadsEnabled?: boolean;
 }

@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { chromium } from "playwright";
+import sharp from "sharp";
 import { loadSource } from "./test-source.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -30,12 +31,13 @@ test("fresh host standalone: generic HTTP COD journey, durable replay and archiv
   const origin = `http://localhost:${port}`;
   const password = randomUUID();
   const key = randomBytes(32).toString("hex");
+  const healthToken = randomBytes(32).toString("hex");
   // Explicit allowlist; optional live integrations cannot inherit shell secrets.
   const env = { PATH: process.env.PATH, HOME: temp, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1",
     HOSTNAME: "127.0.0.1", PORT: String(port), AUTH_URL: origin, AUTH_TRUST_HOST: "true",
     AUTH_SECRET: randomBytes(32).toString("hex"), STOREFRONT_API_KEY: key, CRM_PUBLIC_URL: origin,
     SECURITY_ALLOWED_ORIGINS: origin, DB_PATH: path.join(temp, "data/crm.db"), UPLOAD_DIR: path.join(temp, "data/uploads"),
-    DELIVERY_PROVIDER: "mock", OZON_SUBMIT_INTERVAL_SEC: "1", OZON_POLL_INTERVAL_MIN: "3600",
+    HEALTH_DETAILS_TOKEN: healthToken, DELIVERY_PROVIDER: "mock", SECURITY_ACCEPT_GLOBAL_BUDGETS: "1", OZON_SUBMIT_INTERVAL_SEC: "1", OZON_POLL_INTERVAL_MIN: "3600",
     NODE_OPTIONS: `--import=${path.join(app, "scripts/block-external-network.mjs")}` };
   let server, browser, db;
   let output = "";
@@ -52,7 +54,7 @@ test("fresh host standalone: generic HTTP COD journey, durable replay and archiv
     server.stderr.on("data", data => { output += data; });
     for (let n = 0; n < 200; n++) {
       assert.equal(server.exitCode, null, output);
-      try { const res = await fetch(`${origin}/api/health`); if (res.ok) return res.json(); } catch {}
+      try { const res = await fetch(`${origin}/api/health`, { headers: { Authorization: `Bearer ${healthToken}` } }); if (res.ok) return res.json(); } catch {}
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     throw new Error("Standalone startup timed out");
@@ -99,7 +101,7 @@ test("fresh host standalone: generic HTTP COD journey, durable replay and archiv
     const legacy = await page.request.post(`${origin}/api/admin/products`, { data: { name: "Test", price: 10, category: "objets", colors: [], sizes: [38] }, headers: { Origin: origin } });
     assert.equal(legacy.status(), 400);
     assert.equal((await legacy.json()).error, "Champ non autorisé.");
-    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
+    const png = await sharp({ create: { width: 1, height: 1, channels: 3, background: "#ffffff" } }).png().toBuffer();
     const upload = await page.request.post(`${origin}/api/admin/upload`, { multipart: { file: { name: "fixture.png", mimeType: "image/png", buffer: png } }, headers: { Origin: origin } });
     assert.equal(upload.status(), 201);
     const imagePath = (await upload.json()).files[0];
