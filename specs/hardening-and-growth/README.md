@@ -154,10 +154,10 @@ graph TD
 - [x] [task-28-city-tariffs](./tasks/task-28-city-tariffs.md) — Per-city courier cost and optional customer fee override
 
 ### Wave 5
-- [ ] [task-29-auto-assignment](./tasks/task-29-auto-assignment.md) — Automatic order assignment to agents
-- [ ] [task-30-abandoned-checkout-leads](./tasks/task-30-abandoned-checkout-leads.md) — Abandoned checkout leads (opt-in)
-- [ ] [task-31-dashboard-kpis](./tasks/task-31-dashboard-kpis.md) — Business KPIs on the CRM dashboard
-- [ ] [task-32-orders-csv-export](./tasks/task-32-orders-csv-export.md) — Orders CSV export
+- [x] [task-29-auto-assignment](./tasks/task-29-auto-assignment.md) — Automatic order assignment to agents
+- [x] [task-30-abandoned-checkout-leads](./tasks/task-30-abandoned-checkout-leads.md) — Abandoned checkout leads (opt-in)
+- [x] [task-31-dashboard-kpis](./tasks/task-31-dashboard-kpis.md) — Business KPIs on the CRM dashboard
+- [x] [task-32-orders-csv-export](./tasks/task-32-orders-csv-export.md) — Orders CSV export
 
 ### Wave 6
 - [ ] [task-33-consent-and-snap-pixel](./tasks/task-33-consent-and-snap-pixel.md) — Consent banner and Snap Pixel
