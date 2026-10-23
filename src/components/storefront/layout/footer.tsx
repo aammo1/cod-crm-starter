@@ -26,7 +26,7 @@ export function Footer() {
           </p>
           <p className="inline-block rounded-store border border-store-border bg-store-bg px-3 py-1 text-xs font-medium">{t(locale, "cod")}</p>
         </div>
-        <nav aria-label={name}>
+        <nav aria-label={t(locale, "information")}>
           <ul className="space-y-2 text-sm">
             {links.map((l) => (
               <li key={l.href}><Link href={l.href} className="hover:underline">{l.label}</Link></li>

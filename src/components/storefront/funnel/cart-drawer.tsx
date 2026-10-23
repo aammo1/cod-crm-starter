@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Minus, Plus, Trash2, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { formatPrice, t } from "@/config/i18n";
+import { formatPrice, pieces, t } from "@/config/i18n";
 import type { ProductPack } from "@/lib/commerce-types";
 import { track } from "@/lib/storefront/track";
 import { MAX_LINE_QTY } from "@/stores/cart";
@@ -98,7 +98,7 @@ export default function CartDrawer({ locale, shippingFeeMad, freeShippingThresho
                           </Button>
                         </div>
                         <span className="text-sm font-semibold tabular-nums">{formatPrice(locale, line.unitPrice * line.qty)}</span>
-                        <Button type="button" variant="ghost" size="icon-sm" aria-label={t(locale, "cart")}
+                        <Button type="button" variant="ghost" size="icon-sm" aria-label={t(locale, "remove")}
                           onClick={() => remove(line.variantId)}>
                           <Trash2 />
                         </Button>
@@ -110,7 +110,7 @@ export default function CartDrawer({ locale, shippingFeeMad, freeShippingThresho
 
               {est.applications.map((app) => (
                 <p key={app.productId} className="rounded-store bg-store-accent/10 px-3 py-2 text-xs font-medium">
-                  {t(locale, "pieces", { n: app.quantity })} : {t(locale, "save", { amount: formatPrice(locale, app.discount) })}
+                  {pieces(locale, app.quantity)} : {t(locale, "save", { amount: formatPrice(locale, app.discount) })}
                 </p>
               ))}
             </>

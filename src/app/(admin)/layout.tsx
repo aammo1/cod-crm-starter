@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Toaster } from "@/components/ui/sonner";
 import { getStoreSettings } from "@/lib/services/store-settings";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export default function AdminGroupLayout({ children }: { children: React.ReactNo
   return (
     <div lang="fr" dir="ltr" className="font-sans">
       {children}
+      <Toaster richColors position="top-center" />
     </div>
   );
 }

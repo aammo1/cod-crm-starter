@@ -90,7 +90,7 @@ graph TD
 - [x] [task-12-storefront-shell](./tasks/task-12-storefront-shell.md): Storefront layout, header, footer, static pages, sitemap
 
 ### Wave 5
-- [ ] [task-13-catalog-pages](./tasks/task-13-catalog-pages.md): Home, boutique, category, product pages, custom sections
+- [x] [task-13-catalog-pages](./tasks/task-13-catalog-pages.md): Home, boutique, category, product pages, custom sections
 
 ### Wave 6
 - [ ] [task-14-landing-pages](./tasks/task-14-landing-pages.md): `/l/[slug]` with packs and an inline order form

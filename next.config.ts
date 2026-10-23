@@ -1,15 +1,19 @@
 import type { NextConfig } from "next";
+import { DEVICE_SIZES, IMAGE_SIZES } from "./src/config/image-sizes";
+import rawStoreConfig from "./store.config";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // The store locale is fixed at build time; inlining it lets the bundler ship only that dictionary.
+  env: { NEXT_PUBLIC_STORE_LOCALE: (rawStoreConfig.locale as string) === "ar" ? "ar" : "fr" },
   // inlineCss removed: storefront pages are cached (ISR + Cloudflare), so a shared, cacheable
   // stylesheet beats re-sending the CSS inside every HTML/RSC response.
   images: {
     formats: ["image/avif", "image/webp"],
     // Uploads are stored as <nanoid>-<name>.<ext> (never overwritten), so they are immutable.
     minimumCacheTTL: 60 * 60 * 24 * 365,
-    deviceSizes: [360, 414, 640, 768, 1024, 1280, 1600],
-    imageSizes: [64, 96, 128, 256, 384],
+    deviceSizes: DEVICE_SIZES,
+    imageSizes: IMAGE_SIZES,
     localPatterns: [
       { pathname: "/api/media/**" },
       { pathname: "/images/**" },

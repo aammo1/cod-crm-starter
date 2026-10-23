@@ -69,7 +69,9 @@ test("production mock startup creates an empty isolated CRM and protects operati
     const login = await fetch(`${origin}/login`);
     assert.equal(login.status, 200);
     assert.match(await login.text(), /Connexion/);
-    assert.equal((await fetch(`${origin}/boutique`)).status, 404);
+    const shop = await fetch(`${origin}/boutique`);
+    assert.equal(shop.status, 200);
+    assert.match(await shop.text(), /Aucun produit pour le moment/);
     assert.equal((await fetch(`${origin}/api/catalog-agent`)).status, 503);
     db = new Database(dbPath, { readonly: true });
     const expectedMigrations = readdirSync(path.join(root, "migrations"))
@@ -83,7 +85,7 @@ test("production mock startup creates an empty isolated CRM and protects operati
     }
     assert.equal(db.pragma("integrity_check", { simple: true }), "ok");
     assert.deepEqual(db.pragma("foreign_key_check"), []);
-    console.log(`Mock health, protected redirects, login, removed storefront, disabled automation, ${appliedMigrations.length} migrations and empty operational tables verified.`);
+    console.log(`Mock health, protected redirects, login, empty storefront, disabled automation, ${appliedMigrations.length} migrations and empty operational tables verified.`);
   } finally {
     db?.close();
     child.kill("SIGTERM");

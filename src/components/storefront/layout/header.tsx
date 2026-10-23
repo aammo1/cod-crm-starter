@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { StoreImage } from "@/components/storefront/ui/store-image";
 import Link from "next/link";
 import { storeConfig } from "@/config";
 import { t } from "@/config/i18n";
@@ -14,9 +14,9 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-store-border bg-store-bg">
       <div className="relative mx-auto flex h-16 max-w-6xl items-center gap-2 px-4">
-        <MobileMenu links={links} label={t(locale, "shop")} />
+        <MobileMenu links={links} label={t(locale, "menu")} />
         <Link href="/" className="inline-flex shrink-0 items-center">
-          <Image
+          <StoreImage
             src={brand.logo}
             alt={name}
             width={brand.logoWidth}

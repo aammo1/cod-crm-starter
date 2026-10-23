@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { Toaster } from "@/components/ui/sonner";
 import { storeConfig, htmlDir } from "@/config";
 import "./globals.css";
 
@@ -85,7 +84,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         data-body-font={brand.fonts.body}
       >
         {children}
-        <Toaster richColors position="top-center" />
       </body>
     </html>
   );
