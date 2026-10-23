@@ -25,7 +25,7 @@ jobs:
       DELIVERY_PROVIDER: mock
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4 # TODO: pin by SHA
+      - uses: actions/checkout@v7 # TODO: pin by SHA
       - uses: actions/setup-node@v4 # TODO: pin by SHA
         with:
           node-version: 22
@@ -54,7 +54,7 @@ jobs:
       DELIVERY_PROVIDER: mock
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4 # TODO: pin by SHA
+      - uses: actions/checkout@v7 # TODO: pin by SHA
       - uses: actions/setup-node@v4 # TODO: pin by SHA
         with:
           node-version: 22
@@ -82,7 +82,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4 # TODO: pin by SHA
+      - uses: actions/checkout@v7 # TODO: pin by SHA
       - run: docker build -t store-crm:ci .
       - name: Container health smoke test
         run: |
