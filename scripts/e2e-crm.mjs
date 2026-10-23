@@ -1,12 +1,14 @@
 import { spawn, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { chromium } from "playwright";
 import { loadSource } from "./test-source.mjs";
 
-const temp = mkdtempSync("/tmp/opencode/crm-e2e-");
+const temp = mkdtempSync(path.join(os.tmpdir(), "crm-e2e-"));
 const listener = createServer();
 await new Promise(resolve => listener.listen(0, "127.0.0.1", resolve));
 const PORT = listener.address().port;
@@ -122,7 +124,7 @@ async function run() {
     if (sidebarVisible) throw new Error("Desktop sidebar should be hidden on mobile");
 
     // Compact header should be visible
-    const mobileHeader = page.locator("header").filter({ hasText: "COD CRM" });
+    const mobileHeader = page.locator("header").filter({ has: page.getByRole("button", { name: "Ouvrir le menu de navigation" }) });
     if (!(await mobileHeader.isVisible())) throw new Error("Mobile header not visible");
     console.log("✓ Compact mobile header is visible");
 

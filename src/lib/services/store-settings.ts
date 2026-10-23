@@ -1,3 +1,4 @@
+import rawStoreConfig from "../../../store.config";
 import { getDb } from "@/lib/db";
 import { getAppState, setAppState } from "@/lib/services/app-state";
 import {
@@ -14,7 +15,8 @@ export const STORE_SETTINGS_KEY = "store_settings";
 /** Missing state has defaults without writing any boot-time seed data. */
 export function getStoreSettings(): StoreSettings {
   const value = getAppState(STORE_SETTINGS_KEY);
-  if (value === null) return { ...DEFAULT_STORE_SETTINGS };
+  // Raw config name (not the zod loader) keeps this service loadable in node tests.
+  if (value === null) return { ...DEFAULT_STORE_SETTINGS, storeName: rawStoreConfig.name };
   // Fail closed on corrupt state rather than silently changing checkout policy.
   return storeSettingsSchema.parse(JSON.parse(value));
 }

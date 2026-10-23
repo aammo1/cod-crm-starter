@@ -1,6 +1,7 @@
 import "server-only";
 import { getDb } from "@/lib/db";
 import { getProductById, getVariantById, listProducts } from "@/lib/services/catalog";
+import { getActivePacksFor } from "@/lib/services/packs";
 import { createStorefrontOrderService, StorefrontOrderError } from "@/lib/services/storefront-orders";
 import { consumeStorefrontNewOrderPhoneBudget } from "@/lib/services/security-budgets";
 import { storefrontError } from "@/lib/storefront-auth";
@@ -28,6 +29,7 @@ export function storefrontOrderService() {
         const variant = getVariantById(id);
         return variant ? { ...variant, productName: variant.product.name } : null;
       },
+      getActivePacks: (productIds) => getActivePacksFor(productIds, getDb()),
       getProductById: (id) => canonicalProduct(getProductById(id)),
       listUpsellCandidates: () => listProducts().filter((product) => product.isBestSeller)
         .map((product) => canonicalProduct(product)!),

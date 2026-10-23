@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { stockBatchSchema } from "@/lib/services/inventory-schemas";
 import { applyStockBatch, InventoryConflictError, InventoryValidationError } from "@/lib/services/inventory";
@@ -15,7 +15,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Requête de stock invalide : vérifiez les quantités, le motif et le stock attendu." }, { status: 400 });
     }
     const result = applyStockBatch(parsed.data, user.id);
-    revalidatePath("/", "layout");
+    revalidateStorefront();
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();

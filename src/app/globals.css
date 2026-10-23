@@ -51,7 +51,20 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --color-store-primary: var(--store-primary);
+  --color-store-primary-fg: var(--store-primary-fg);
+  --color-store-accent: var(--store-accent);
+  --color-store-bg: var(--store-bg);
+  --color-store-fg: var(--store-fg);
+  --color-store-muted: var(--store-muted);
+  --color-store-border: var(--store-border);
+  --radius-store: var(--store-radius);
 }
+
+body[data-heading-font="inter"] { --font-heading: var(--font-inter); }
+body[data-heading-font="cairo"],
+html[lang="ar"] body { --font-heading: var(--font-cairo); }
+html[lang="ar"] body { font-family: var(--font-cairo), system-ui, sans-serif; }
 
 :root {
   --background: oklch(0.99 0.005 180);

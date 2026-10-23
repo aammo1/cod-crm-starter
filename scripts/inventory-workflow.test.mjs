@@ -332,7 +332,7 @@ if (child) {
       if (role !== "admin") throw new AuthGuardError(role ? 403 : 401);
       return { id: actor };
     } } };
-    loadSource.cache[cachePath] = { exports: { revalidatePath() { if (failRevalidation) throw new Error("cache failure"); } } };
+    loadSource.cache[cachePath] = { exports: { revalidateTag() {}, revalidatePath() { if (failRevalidation) throw new Error("cache failure"); } } };
     try {
       const [stockPOST, openingPOST, adjustPOST] = routePaths.map(p => loadSource(p).POST);
       for (const denied of ["agent", null]) {

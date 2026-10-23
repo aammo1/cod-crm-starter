@@ -123,6 +123,7 @@ function catalogPort(connection) {
       const p = product(row.product_id); const v = p.variants.find((v) => v.id === id);
       return { ...v, productActive: p.active, productName: p.name, price: p.price };
     },
+    getActivePacks: () => ({}),
     listUpsellCandidates() {
       return connection.prepare("SELECT id FROM products WHERE is_best_seller = 1 ORDER BY id").all().map((p) => product(p.id));
     },
@@ -165,7 +166,7 @@ test("replay precedes catalog and quota, normalized aggregation hashes canonical
   const original = service().checkout("canonical-checkout", checkoutInput({ items: [{ variantId: "cart-v", qty: 2 }] }));
   const throwing = () => { throw new Error("must not be called for replay"); };
   const replay = createStorefrontOrderService({ db, catalog: { getVariantById: throwing, getProductById: throwing,
-    listUpsellCandidates: throwing }, checkNewOrderQuota: throwing }).checkout("canonical-checkout",
+    listUpsellCandidates: throwing, getActivePacks: throwing }, checkNewOrderQuota: throwing }).checkout("canonical-checkout",
       checkoutInput({ customer: { name: "Client Test", phone: "+212612345678" },
         items: [{ variantId: "cart-v", qty: 1 }, { variantId: "cart-v", qty: 1 }] }));
   assert.equal(replay.status, 200); assert.deepEqual(replay.response, original.response);
@@ -442,4 +443,63 @@ test("lifecycle API enforces login, validates batches, and rejects agent deletio
     assert.equal((await POST(request({ ids: ["api-delete"], action: "delete" }))).status, 200);
     assert.equal(getOrder("api-delete"), null);
   } finally { Module._load = originalLoad; }
+});
+
+// Pack pricing: discounted subtotal drives shipping, upsell accept and agent edits.
+test("pack orders: upsell accept keeps the pack discount; agent edits keep the explicit fixed discount", () => {
+  const { editOrder, getOrderEditState } = loadSource("@/lib/services/order-edits");
+  db.prepare("UPDATE products SET price = 300, active = 1, name = 'cart' WHERE id = 'cart'").run();
+  db.prepare("UPDATE products SET price = 100, active = 1, name = 'offer' WHERE id = 'offer'").run();
+  db.prepare(`INSERT OR REPLACE INTO app_state(key, value) VALUES ('store_settings', ?)`)
+    .run(JSON.stringify({ storeName: "Pack", shippingFeeMad: 29, freeShippingThresholdMad: 500,
+      upsellEnabled: true, upsellWindowSeconds: 300, upsellDiscountPercent: 30 }));
+  const pack = { id: "pack-2", quantity: 2, price: 500, highlight: false };
+  const packService = () => createStorefrontOrderService({ db,
+    catalog: { ...catalogPort(db), getActivePacks: () => ({ cart: [pack] }) } });
+  const two = checkoutInput({ items: [{ variantId: "cart-v", qty: 2 }] });
+
+  // 600 regular, 100 saved; discounted 500 reaches the 500 free-shipping threshold.
+  const first = packService().checkout("pack-upsell-key", two).response;
+  assert.equal(first.totals.packDiscount, 100);
+  let row = db.prepare("SELECT * FROM orders WHERE id = ?").get(first.orderId);
+  assert.deepEqual([row.subtotal, row.discount_amount, row.discount_type, row.discount_value, row.shipping, row.total],
+    [600, 100, "fixed", 100, 0, 500]);
+  assert.equal(JSON.parse(row.pack_snapshot_json)[0].packId, "pack-2");
+
+  const accepted = packService().resolveUpsell(first.orderId, "pack-upsell-accept", first.orderToken,
+    { action: "accept", variantId: "offer-v" });
+  row = db.prepare("SELECT * FROM orders WHERE id = ?").get(first.orderId);
+  assert.equal(row.upsell_status, "accepted");
+  assert.deepEqual([row.subtotal, row.discount_amount, row.shipping, row.total], [670, 100, 0, 570]);
+  assert.equal(accepted.totals.total, 570);
+  assert.equal(accepted.totals.itemsSubtotal, 670);
+
+  // Shipping is computed on the discounted subtotal: 590 regular but 490 discounted pays shipping.
+  const cheap = packService().checkout("pack-ship-key", two).response;
+  db.prepare(`INSERT OR REPLACE INTO app_state(key, value) VALUES ('store_settings', ?)`)
+    .run(JSON.stringify({ storeName: "Pack", shippingFeeMad: 29, freeShippingThresholdMad: 550,
+      upsellEnabled: true, upsellWindowSeconds: 300, upsellDiscountPercent: 30 }));
+  const paid = packService().checkout("pack-ship-key-2", two).response;
+  assert.equal(paid.totals.shipping, 29);
+  assert.equal(paid.totals.total, 529);
+  assert.equal(cheap.totals.shipping, 0);
+
+  // Edit: quantity 2 -> 1 with the pack's fixed discount re-submitted by the agent keeps it as an explicit,
+  // audited agent discount (not recomputed from pack_snapshot_json); the pack snapshot stays as checkout history.
+  const edit = (orderId, extra) => {
+    const state = getOrderEditState(orderId);
+    return editOrder(orderId, { revision: state.revision, lines: [{ variantId: "cart-v", qty: 1 }],
+      discountType: "fixed", discountValue: 100, shippingMode: "auto", reason: "Test modification", ...extra }, agent);
+  };
+  edit(paid.orderId, {});
+  row = db.prepare("SELECT * FROM orders WHERE id = ?").get(paid.orderId);
+  assert.deepEqual([row.subtotal, row.discount_amount, row.shipping, row.total], [300, 100, 29, 229]);
+  assert.ok(row.pack_snapshot_json);
+  // A fixed discount above the remaining items is rejected with a French message.
+  assert.throws(() => edit(paid.orderId, { discountValue: 301 }),
+    (error) => error.status === 400 && /remise ne peut pas dépasser/.test(error.message));
+  // Agent can drop the stale discount explicitly.
+  edit(paid.orderId, { discountType: "none", discountValue: 0 });
+  row = db.prepare("SELECT * FROM orders WHERE id = ?").get(paid.orderId);
+  assert.deepEqual([row.subtotal, row.discount_amount, row.total], [300, 0, 329]);
 });

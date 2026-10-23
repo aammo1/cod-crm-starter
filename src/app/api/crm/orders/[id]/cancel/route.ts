@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { AuthGuardError, requireUser } from "@/lib/auth-guards";
 import { cancelOrderSchema } from "@/lib/api-schemas";
 import { ConfirmationError, cancelOrder } from "@/lib/services/confirmation";
@@ -29,6 +30,7 @@ export async function POST(
     }
 
     cancelOrder(id, parsed.data, user);
+    revalidateStorefront();
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();

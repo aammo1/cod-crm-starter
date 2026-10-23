@@ -3,14 +3,16 @@ import { isIP } from "node:net";
 import { z } from "@/lib/validation";
 import type Database from "better-sqlite3";
 import type {
-  CommerceProduct, CommerceVariant, CommerceOrderItem, CommerceTotals,
+  CommerceProduct, CommerceVariant, ProductPack, CommerceOrderItem, CommerceTotals,
   StorefrontCheckoutReceiptSnapshot, StorefrontCheckoutResponse, StorefrontUpsellResponse,
 } from "@/lib/commerce-types";
 import { getDb, insertStorefrontOrder, closePendingStorefrontUpsell, type StoredStorefrontOffer } from "@/lib/db";
+import { applyPacks } from "@/lib/pack-pricing";
 import { normalizeMaPhone } from "@/lib/phone";
 import { shippingFor, upsellPriceFor } from "@/lib/pricing";
 import { DEFAULT_STORE_SETTINGS, storeSettingsSchema } from "@/lib/store-settings-schema";
 import { metaEnabled } from "@/lib/services/meta";
+import { tiktokEnabled, tiktokContextFromAttribution, recordTikTokPurchaseContext } from "@/lib/services/tiktok";
 import { orderRulesKey } from "@/lib/services/order-lines";
 import { createOrderNonce, deriveOrderToken, orderTokenVerifier, verifyOrderToken } from "@/lib/order-token";
 import { StorefrontOrderError, findReceipt, writeReceipt, validateRequestKey, immediateOrderTransaction } from "@/lib/services/request-receipts";
@@ -28,6 +30,8 @@ export interface StorefrontCatalogPort {
   getVariantById(id: string): StorefrontCatalogVariant | null;
   getProductById(id: string): CommerceProduct | null;
   listUpsellCandidates(): CommerceProduct[];
+  /** Active quantity packs keyed by product ID (one query). */
+  getActivePacks(productIds: string[]): Record<string, ProductPack[]>;
 }
 
 const idSchema = z.string().trim().min(1).max(200);
@@ -36,6 +40,8 @@ const attributionSchema = z.object({
   sourceUrl: z.string().url().max(2048).refine((s) => /^https?:\/\//.test(s)),
   fbp: z.string().regex(/^fb\.\d+\.\d+\.[\w-]+$/).max(256).optional(),
   fbc: z.string().regex(/^fb\.\d+\.\d+\.[\w-]+$/).max(512).optional(),
+  ttp: z.string().max(256).regex(/^[\w.-]+$/).optional(),
+  ttclid: z.string().max(512).regex(/^[\w.-]+$/).optional(),
   clientIpAddress: z.string().max(45).refine((s) => !!isIP(s)).optional(),
   clientUserAgent: z.string().max(1024).optional(),
 }).strict();
@@ -69,6 +75,8 @@ export function canonicalCheckout(input: unknown) {
     })(),
     ...(value.meta.fbp ? { fbp: value.meta.fbp } : {}),
     ...(value.meta.fbc ? { fbc: value.meta.fbc } : {}),
+    ...(value.meta.ttp ? { ttp: value.meta.ttp } : {}),
+    ...(value.meta.ttclid ? { ttclid: value.meta.ttclid } : {}),
     ...(value.meta.clientIpAddress ? { clientIpAddress: value.meta.clientIpAddress } : {}),
     ...(value.meta.clientUserAgent ? { clientUserAgent: value.meta.clientUserAgent } : {}),
   } : undefined;
@@ -81,9 +89,10 @@ export function canonicalCheckout(input: unknown) {
 export function storefrontRequestHash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
-function totals(subtotal: number, shipping: number): CommerceTotals {
-  if (!Number.isSafeInteger(subtotal) || !Number.isSafeInteger(subtotal + shipping)) invalid();
-  return { itemsSubtotal: subtotal, shipping, total: subtotal + shipping, currency: "MAD" };
+function totals(subtotal: number, shipping: number, discount = 0): CommerceTotals {
+  if (!Number.isSafeInteger(subtotal) || !Number.isSafeInteger(subtotal - discount + shipping) || discount < 0 || discount > subtotal) invalid();
+  return { itemsSubtotal: subtotal, shipping, total: subtotal - discount + shipping, currency: "MAD",
+    ...(discount > 0 ? { packDiscount: discount } : {}) };
 }
 function snapshot(variant: CommerceVariant, name: string, price: number, quantity: number): CommerceOrderItem {
   if (!Number.isSafeInteger(price) || price < 0) invalid();
@@ -95,7 +104,7 @@ interface PrivateOrder {
   id: string; order_token_nonce: string; order_token_verifier: string;
   upsell_status: StorefrontUpsellResponse["upsellStatus"]; confirmation_status: string;
   upsell_offer_json: string | null; upsell_expires_at: string | null;
-  subtotal: number; shipping: number; total: number;
+  subtotal: number; shipping: number; total: number; discount_amount: number;
 }
 function privateOrder(db: Database.Database, id: string): PrivateOrder {
   const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(id) as PrivateOrder | undefined;
@@ -168,12 +177,21 @@ export function createStorefrontOrderService(deps: StorefrontOrderDependencies) 
           };
         }
         const subtotal = items.reduce((n, i) => n + i.line_total, 0);
-        const amounts = totals(subtotal, shippingFor(subtotal, settings));
+        // Packs are priced only from quantities and DB rows. Lines stay at the regular
+        // unit price; the pack saving is stored as the order-level fixed discount.
+        // An agent edit keeps a fixed discount value (order-edits recomputes it from
+        // type/value), so the saving survives edits unless an agent changes it.
+        const { discount, applications } = applyPacks(
+          items.map((i) => ({ productId: i.product_id, qty: i.quantity, unitPrice: i.unit_price })),
+          deps.catalog.getActivePacks([...productIds]),
+        );
+        const amounts = totals(subtotal, shippingFor(subtotal - discount, settings), discount);
         const id = randomUUID(); const nonce = createOrderNonce();
         const token = deriveOrderToken(id, nonce);
         insertStorefrontOrder(db, { id, customerName: request.customer.name,
           customerPhone: request.customer.phone, items, offer, nonce, verifier: orderTokenVerifier(token),
-          subtotal, shipping: amounts.shipping, total: amounts.total, now: new Date(now).toISOString() });
+          subtotal, shipping: amounts.shipping, total: amounts.total, now: new Date(now).toISOString(),
+          ...(discount > 0 ? { discount, packSnapshot: applications } : {}) });
         // Every checkout needs historical shipping rules, including disabled or
         // unavailable upsells. Share manual creation's per-order snapshot contract
         // and write on this connection so order + rules + receipt commit together.
@@ -198,6 +216,18 @@ export function createStorefrontOrderService(deps: StorefrontOrderDependencies) 
                 total: amounts.total, items, upsellItems: [], customerName: request.customer.name,
                 customerPhone: request.customer.phone, eventTime: Math.floor(now / 1000),
               }));
+        }
+        if (request.meta && tiktokEnabled()) {
+          const m = request.meta;
+          if (!metaEnabled()) {
+            const duplicate = db.prepare("SELECT 1 FROM tiktok_purchases WHERE event_id = ?").get(m.eventId);
+            if (duplicate) throw new StorefrontOrderError(409, "META_EVENT_CONFLICT", "Cet événement est déjà associé à une commande.");
+          }
+          recordTikTokPurchaseContext(db, id, tiktokContextFromAttribution(m, m.clientIpAddress, m.clientUserAgent),
+            offer ? Date.parse(offer.expiresAt) : now, offer ? undefined : {
+              total: amounts.total, items, upsellItems: [], customerPhone: request.customer.phone,
+              eventTime: Math.floor(now / 1000),
+            });
         }
         const publicOffer = offer ? { offerId: offer.offerId, productId: offer.productId,
           name: offer.name, image: offer.image, originalPrice: offer.originalPrice,
@@ -229,13 +259,13 @@ export function createStorefrontOrderService(deps: StorefrontOrderDependencies) 
         if (!order.upsell_expires_at || Date.now() >= Date.parse(order.upsell_expires_at) || !Number.isFinite(Date.parse(order.upsell_expires_at))) conflict();
         if (!order.upsell_offer_json) conflict();
         const offer = JSON.parse(order.upsell_offer_json) as StoredStorefrontOffer;
-        let amounts = totals(order.subtotal, order.shipping);
+        let amounts = totals(order.subtotal, order.shipping, order.discount_amount);
         if (request.action === "accept") {
           const choice = offer.variants.find((v) => v.variantId === request.variantId && v.available);
           const item = offer.variantItems.find((v) => v.variant_id === request.variantId && v.product_id === offer.productId);
           if (!choice || !item) throw new StorefrontOrderError(400, "INVALID_UPSELL_VARIANT", "Variante hors de l’offre proposée.");
           const subtotal = order.subtotal + item.line_total;
-          amounts = totals(subtotal, shippingFor(subtotal, offer.rules));
+          amounts = totals(subtotal, shippingFor(subtotal - order.discount_amount, offer.rules), order.discount_amount);
           db.prepare(`UPDATE orders SET upsell_status = 'accepted', upsell_items_json = ?,
             subtotal = ?, shipping = ?, total = ?, updated_at = ? WHERE id = ? AND upsell_status = 'pending'`)
             .run(JSON.stringify([item]), subtotal, amounts.shipping, amounts.total, new Date().toISOString(), orderId);

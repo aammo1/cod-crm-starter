@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { nanoid } from "nanoid";
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
 import { stockAdjustSchema } from "@/lib/services/inventory-schemas";
@@ -50,7 +50,7 @@ export async function POST(
       throw error;
     }
 
-    revalidatePath("/", "layout");
+    revalidateStorefront();
     return NextResponse.json({ ok: true, ref });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();

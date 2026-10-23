@@ -5,6 +5,7 @@ import { redactText } from "@/lib/shipping/redact";
 import { startSubmissionWorker } from "@/lib/workers/submission";
 import { startTrackingWorker } from "@/lib/workers/tracking";
 import { startMetaWorker } from "@/lib/workers/meta";
+import { startTikTokWorker } from "@/lib/workers/tiktok";
 
 const CITIES_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -34,6 +35,7 @@ export function startWorkers(): void {
   startSafely("submission", startSubmissionWorker);
   startSafely("tracking", startTrackingWorker);
   startSafely("meta", startMetaWorker);
+  startSafely("tiktok", startTikTokWorker);
   void refreshCitiesLoop();
 }
 
@@ -48,15 +50,17 @@ function startSafely(name: string, start: () => void): void {
 }
 
 /** Which worker timers are registered in this process (consumed by /api/health). */
-export function workerHealth(): { submission: { enabled: boolean }; tracking: { enabled: boolean }; meta: { enabled: boolean } } {
+export function workerHealth(): { submission: { enabled: boolean }; tracking: { enabled: boolean }; meta: { enabled: boolean }; tiktok: { enabled: boolean } } {
   const g = globalThis as {
     __crmSubmissionWorker?: NodeJS.Timeout;
     __crmTrackingWorker?: NodeJS.Timeout;
     __crmMetaWorker?: NodeJS.Timeout;
+    __crmTikTokWorker?: NodeJS.Timeout;
   };
   return {
     submission: { enabled: !!g.__crmSubmissionWorker },
     tracking: { enabled: !!g.__crmTrackingWorker },
     meta: { enabled: !!g.__crmMetaWorker },
+    tiktok: { enabled: !!g.__crmTikTokWorker },
   };
 }

@@ -43,7 +43,8 @@ export function changeOrderLifecycle(
         }
         // Remove only this order's durable conversion jobs, including pending jobs.
         db.prepare("DELETE FROM meta_events WHERE event_id IN (SELECT event_id FROM meta_purchases WHERE order_id = ?)").run(id);
-        for (const table of ["meta_purchases", "manual_order_requests", "order_contacts"]) {
+        db.prepare("DELETE FROM tiktok_events WHERE event_id IN (SELECT event_id FROM tiktok_purchases WHERE order_id = ?)").run(id);
+        for (const table of ["meta_purchases", "tiktok_purchases", "manual_order_requests", "order_contacts"]) {
           db.prepare(`DELETE FROM ${table} WHERE order_id = ?`).run(id);
         }
         db.prepare("DELETE FROM orders WHERE id = ?").run(id);

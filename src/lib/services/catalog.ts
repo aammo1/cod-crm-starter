@@ -1,8 +1,9 @@
 import { nanoid } from "nanoid";
 import { getDb } from "@/lib/db";
-import type { CommerceProduct, CommerceVariant, ProductOptionDefinition, PublicCommerceProduct, VariantOption } from "@/lib/commerce-types";
+import type { CommerceProduct, CommerceVariant, ProductOptionDefinition, ProductPack, PublicCommerceProduct, VariantOption } from "@/lib/commerce-types";
 import { validateVariantCombinations, variantOptionsKey, variantOptionsLabel } from "@/lib/variant-options";
 import { InventoryConflictError, InventoryValidationError } from "./inventory-errors";
+import { getActivePacksFor } from "./packs";
 import { getAppState, setAppState } from "./app-state";
 import { createProductSchema, updateProductSchema, type CreateProductInput, type UpdateProductInput } from "./catalog-schemas";
 
@@ -22,6 +23,7 @@ interface ProductRow {
   description: string; story: string; materials_json: string; badge: string | null;
   is_best_seller: number; upsell_ref: string | null; active: number;
   created_at: string; updated_at: string; images_json: string; option_definitions_json: string;
+  landing_enabled: number;
 }
 interface VariantRow {
   id: string; product_id: string; sku: string; label: string; options_json: string;
@@ -38,7 +40,7 @@ function variantRows(productId: string): VariantRow[] {
     LEFT JOIN stock_balances sb ON sb.variant_id = v.id AND sb.location = 'MAIN'
     WHERE v.product_id = ? ORDER BY v.rowid`).all(productId) as VariantRow[];
 }
-function hydrateProduct(row: ProductRow): CatalogProduct {
+function hydrateProduct(row: ProductRow, packs: ProductPack[]): CatalogProduct {
   const images = parse<string[]>(row.images_json);
   const variants = variantRows(row.id).map((variant): VariantView => {
     const ownImages = parse<string[]>(variant.images_json);
@@ -53,7 +55,7 @@ function hydrateProduct(row: ProductRow): CatalogProduct {
     description: row.description, story: row.story, materials: parse<string[]>(row.materials_json),
     ...(row.badge === null ? {} : { badge: row.badge }),
     ...(row.upsell_ref === null ? {} : { upsellRef: row.upsell_ref }),
-    isBestSeller: row.is_best_seller === 1,
+    isBestSeller: row.is_best_seller === 1, packs, landingEnabled: row.landing_enabled === 1,
     active: row.active === 1, createdAt: row.created_at, updatedAt: row.updated_at,
     images, optionDefinitions: parse<ProductOptionDefinition[]>(row.option_definitions_json), variants,
   };
@@ -61,15 +63,17 @@ function hydrateProduct(row: ProductRow): CatalogProduct {
 
 /** Stable ID order; internal projection includes inactive variants and numeric availability. */
 export function listProducts(opts?: { includeInactive?: boolean }): CatalogProduct[] {
-  return (getDb().prepare(`SELECT * FROM products ${opts?.includeInactive ? "" : "WHERE active = 1"} ORDER BY id`).all() as ProductRow[]).map(hydrateProduct);
+  const rows = getDb().prepare(`SELECT * FROM products ${opts?.includeInactive ? "" : "WHERE active = 1"} ORDER BY id`).all() as ProductRow[];
+  const packs = getActivePacksFor(rows.map((row) => row.id));
+  return rows.map((row) => hydrateProduct(row, packs[row.id] ?? []));
 }
 export function getProductById(id: string): CatalogProduct | null {
   const row = getDb().prepare("SELECT * FROM products WHERE id = ?").get(id) as ProductRow | undefined;
-  return row ? hydrateProduct(row) : null;
+  return row ? hydrateProduct(row, getActivePacksFor([row.id])[row.id] ?? []) : null;
 }
 export function getProductBySlug(slug: string): CatalogProduct | null {
   const row = getDb().prepare("SELECT * FROM products WHERE slug = ?").get(slug) as ProductRow | undefined;
-  return row ? hydrateProduct(row) : null;
+  return row ? hydrateProduct(row, getActivePacksFor([row.id])[row.id] ?? []) : null;
 }
 /** Includes archived ownership/state for operational callers; checkout must check
  * both active and productActive. Zero availability does not invalidate checkout. */
@@ -93,6 +97,7 @@ export function toStorefrontProductView(product: CatalogProduct): StorefrontProd
     ...(product.badge === undefined ? {} : { badge: product.badge }),
     ...(product.upsellRef === undefined ? {} : { upsellRef: product.upsellRef }),
     isBestSeller: product.isBestSeller, active: product.active, images: product.images,
+    packs: product.packs, landingEnabled: product.landingEnabled,
     optionDefinitions: product.optionDefinitions, variants, anyAvailable: variants.some((variant) => variant.available),
   };
 }

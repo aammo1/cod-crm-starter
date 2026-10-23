@@ -14,6 +14,7 @@ Object.assign(process.env, {
   DELIVERY_PROVIDER: "mock", AUTH_SECRET: randomBytes(32).toString("hex"),
   STOREFRONT_API_KEY: randomBytes(32).toString("hex"), CRM_PUBLIC_URL: "https://crm.example.test",
   FACEBOOK_PIXEL_ID: "123456", FACEBOOK_ACCESS_TOKEN: "test-token", FACEBOOK_TEST_EVENT_CODE: "TEST123",
+  TIKTOK_PIXEL_ID: "TTPIXEL12345", TIKTOK_ACCESS_TOKEN: "tt-test-token",
 });
 delete process.env.SECURITY_TRUSTED_IP_HEADER;
 const originalLoad = Module._load;
@@ -25,6 +26,7 @@ const { POST: upsell } = loadSource("@/app/api/storefront/v1/orders/[id]/upsell/
 const { getDb } = loadSource("@/lib/db");
 const { createProduct, updateProduct, archiveProduct } = loadSource("@/lib/services/catalog");
 const { purchaseFor, finalizeMetaPurchases, metaTick } = loadSource("@/lib/services/meta");
+const { finalizeTikTokPurchases } = loadSource("@/lib/services/tiktok");
 const { budgetKey } = loadSource("@/lib/services/security-budgets");
 Module._load = originalLoad;
 const db = getDb();
@@ -208,4 +210,39 @@ test("durable optional Meta delivery retries immutable ID/time and prevents acti
   const first = metaTick(); await metaTick(); assert.equal(calls, 1); release(); await first;
   assert.deepEqual(requests[0], requests[1]); assert.ok(queued(saved.orderId).sent_at);
   await metaTick(); assert.equal(calls, 1);
+});
+
+test("TikTok Purchase is queued exactly once per order with the shared event ID (no offer, replay, accepted, declined)", async () => {
+  const { DEFAULT_STORE_SETTINGS } = loadSource("@/lib/store-settings-schema");
+  const rows = (id) => db.prepare("SELECT * FROM tiktok_events WHERE event_id = ?").all(id);
+  const ttRow = (orderId) => db.prepare("SELECT * FROM tiktok_purchases WHERE order_id = ?").get(orderId);
+  db.prepare("INSERT INTO app_state(key, value) VALUES ('store_settings', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(JSON.stringify({ ...DEFAULT_STORE_SETTINGS, upsellEnabled: false }));
+  try {
+    const data = body(); const key = randomUUID();
+    const saved = await order(data, key);
+    assert.equal(saved.upsellOffer, null);
+    assert.ok(ttRow(saved.orderId).snapshot_json);
+    finalizeTikTokPurchases(); finalizeTikTokPurchases();
+    assert.equal(rows(data.meta.eventId).length, 1);
+    const payload = JSON.parse(rows(data.meta.eventId)[0].payload_json);
+    assert.equal(payload.event, "CompletePayment"); assert.equal(payload.event_id, data.meta.eventId);
+    assert.equal(payload.properties.value, saved.totals.total);
+    const replayResponse = await checkout(request(data, key));
+    assert.equal(replayResponse.status, 200);
+    const replay = await replayResponse.json();
+    assert.equal(replay.orderId, saved.orderId);
+    finalizeTikTokPurchases();
+    assert.equal(rows(data.meta.eventId).length, 1);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM tiktok_purchases WHERE event_id = ?").get(data.meta.eventId).n, 1);
+  } finally { db.prepare("DELETE FROM app_state WHERE key = 'store_settings'").run(); }
+  for (const action of [{ action: "accept", variantId: choice }, { action: "decline" }]) {
+    const data = body(); const saved = await order(data);
+    assert.ok(saved.upsellOffer); assert.equal(ttRow(saved.orderId).snapshot_json, null);
+    finalizeTikTokPurchases(); assert.equal(rows(data.meta.eventId).length, 0);
+    assert.equal((await resolve(saved, action)).status, 200);
+    finalizeTikTokPurchases(); finalizeTikTokPurchases();
+    assert.equal(rows(data.meta.eventId).length, 1);
+    assert.equal(JSON.parse(rows(data.meta.eventId)[0].payload_json).event_id, data.meta.eventId);
+  }
 });

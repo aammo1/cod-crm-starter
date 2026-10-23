@@ -29,6 +29,7 @@ export function upsellService(db) {
   return createStorefrontOrderService({ db, catalog: {
     getVariantById: (id) => { const v = catalog.getVariantById(id); return v && { ...v, productName: v.product.name }; },
     getProductById: catalog.getProductById, listUpsellCandidates: catalog.listProducts,
+    getActivePacks: (ids) => loadSource("@/lib/services/packs").getActivePacksFor(ids, db),
   } });
 }
 

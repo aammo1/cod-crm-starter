@@ -31,6 +31,8 @@ jobs:
           npm test
           node --test examples/nextjs/verify.test.mjs
       - run: npm run build
+      - name: Storefront static/ISR and JS budget
+        run: npm run perf-budget
       - name: Bootstrap against the built app
         run: |
           export NODE_OPTIONS="--import=$GITHUB_WORKSPACE/scripts/block-external-network.mjs"

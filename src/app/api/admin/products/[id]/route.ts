@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidateStorefront } from "@/lib/storefront/revalidate";
 import { ZodError } from "zod";
 
 import { AuthGuardError, requireAdmin } from "@/lib/auth-guards";
@@ -20,7 +20,7 @@ export async function PUT(
     const body: unknown = await request.json().catch(() => null);
     const parsed = updateProductSchema.parse(body);
     const product = updateProduct(id, parsed);
-    revalidatePath("/", "layout");
+    revalidateStorefront();
     return NextResponse.json({ product }, { status: 200 });
   } catch (error) {
     if (error instanceof AuthGuardError) return error.toResponse();

@@ -4,6 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -14,7 +15,7 @@ import { loadSource } from "./test-source.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 test("fresh host standalone: generic HTTP COD journey, durable replay and archived return inspection", { timeout: 180_000 }, async () => {
-  const temp = mkdtempSync("/tmp/opencode/crm-release-");
+  const temp = mkdtempSync(path.join(os.tmpdir(), "crm-release-"));
   const app = path.join(temp, "app");
   cpSync(path.join(root, ".next/standalone"), app, { recursive: true });
   cpSync(path.join(root, ".next/static"), path.join(app, ".next/static"), { recursive: true });
@@ -124,7 +125,7 @@ test("fresh host standalone: generic HTTP COD journey, durable replay and archiv
       assert.equal((await storefront(`catalog/${product.slug}`)).body.product.variants[0].id, product.variants[0].id);
     }
     const catalog = await storefront("catalog");
-    assert.equal(catalog.body.settings.storeName, "COD CRM");
+    assert.equal(catalog.body.settings.storeName, "Ma Boutique");
     assert.equal(catalog.body.settings.shippingFeeMad, 29);
     assert.equal(catalog.body.settings.freeShippingThresholdMad, 400);
     assert.equal(typeof catalog.body.products[0].variants[0].available, "boolean");
