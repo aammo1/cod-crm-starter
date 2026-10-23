@@ -267,6 +267,11 @@ remplacer par des compteurs atomiques partagés et des limites au reverse proxy.
 Le Bearer caché et le contrôle Origin ne bloquent pas seuls un automate. Ne pas
 considérer cet exemple mémoire comme une protection distribuée prête à l’emploi.
 
+> **Attribution UTM : storefront intégré uniquement.** Le storefront du dépôt capture
+> les paramètres UTM et les stocke sur la commande via ses routes `/api/store/*`.
+> Le contrat v1 décrit ici n’a pas changé et n’accepte aucun champ UTM
+> supplémentaire ; un storefront externe garde l’attribution originale ci-dessous.
+
 ## Attribution originale facultative
 
 Sans consentement, omettre `meta`. Dans une intégration serveur de confiance,

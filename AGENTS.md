@@ -17,6 +17,7 @@ secrets. No shared multi-tenant state or automatic template updates.
 - `DELIVERY_PROVIDER=mock npm run build` — standalone output, no DB/seed at build
 - `DELIVERY_PROVIDER=mock npm run start` — local production verification
 - Docker runs `node server.js` from standalone with static/public/migrations included
+- `npm run test:unit` — fast unit suites in `scripts/unit/*.test.mjs`
 - `npm run test:bootstrap`, `npm run test:crm`, `npm run test:catalog-agent`,
   `npm run test:security`, `npm run test:meta`, `npm run test:assistant`
 - `node --test examples/nextjs/verify.test.mjs` — typed client and public Next proxy
@@ -31,7 +32,8 @@ secrets. No shared multi-tenant state or automatic template updates.
   session version. Run from repo root, scripts do not load `.env.local`.
 - `npm run new-store` — new-niche wizard
 - `npm run perf-budget` — storefront first-load JS budget, run after build
-- `npm run backup` — online SQLite snapshot; in image use `node scripts/backup-db.mjs`
+- `npm run backup` — online SQLite snapshot + uploads + manifest; in image use `node scripts/backup-db.mjs`
+- `npm run backup:verify` — restore check of a snapshot on a temp copy; in image `node scripts/verify-backup.mjs`
 
 ## Ownership and integration boundaries
 
@@ -42,7 +44,9 @@ secrets. No shared multi-tenant state or automatic template updates.
 - `src/lib/services/inventory.ts`: **sole writer** of physical/reserved/quarantine
   stock and ledger, including catalog initial stock through its supported path.
 - `src/lib/services/`: catalog, settings, orders/receipts, confirmation, team,
-  edits/history/lifecycle, fulfillment, returns, dashboard and optional integrations.
+  edits/history/lifecycle, fulfillment, returns, dashboard and optional integrations;
+  also `delivery-outcomes`, `customers` (blocklist/history), `ad-spend`,
+  `cod-remittances`, `city-tariffs`, `assignment`, `kpis` and `checkout-leads`.
 - `src/lib/shipping/`: mock/Ozon adapters, redaction, mapping and submission policy.
 - `src/lib/workers/`: parcel submission, tracking, optional Meta, via instrumentation.
 - `src/app/(admin)/`: login, `/admin` catalog and `/crm` operations/team/settings.

@@ -27,7 +27,7 @@ les secrets résolus ; utiliser `config --quiet`.
 | `STOREFRONT_API_KEY` | `openssl rand -hex 32`, ≥32 caractères ; absent/invalide désactive v1 (503) |
 | `SECURITY_ALLOWED_ORIGINS` | Liste séparée par virgules d’origines navigateur CRM exactes, protocole et port inclus ; sans wildcard |
 | `SECURITY_TRUSTED_IP_HEADER` | Vide par défaut ; seules valeurs acceptées : `x-real-ip` ou `x-forwarded-for` (dernier saut) ; `CF-Connecting-IP` n’est **pas** supporté (ignoré). Opt-in uniquement derrière un proxy maîtrisé |
-| `DELIVERY_PROVIDER` | Garder `mock` ; **seule cette valeur exacte** sélectionne le mock dans le code. Sans variable, le code utilise Ozon. Image/Compose/exemple fixent mock par défaut |
+| `DELIVERY_PROVIDER` | **Obligatoire en production** : exactement `mock` ou `ozon`, sinon le démarrage échoue. **Seule la valeur exacte `mock`** sélectionne le mock dans le code ; `ozon` exige `OZON_CLIENT_ID` et `OZON_API_KEY`. Compose refuse de démarrer sans elle. Garder `mock` jusqu’à l’activation autorisée |
 | `OZON_CLIENT_ID`, `OZON_API_KEY` | Identifiants propres au compte de cette boutique, inutiles pour mock |
 | `OZON_BASE_URL` | `https://api.ozonexpress.ma` par défaut |
 | `OZON_USE_CUSTOM_TRACKING` | `0` par défaut ; activer seulement après validation du compte/provider |
@@ -38,6 +38,19 @@ les secrets résolus ; utiliser `config --quiet`.
 | `FACEBOOK_PIXEL_ID`, `FACEBOOK_ACCESS_TOKEN` | Meta serveur facultatif, désactivé sans ID numérique et token ; le CRM n’y monte aucun Pixel ; les Pixels navigateur du storefront viennent des identifiants de `store.config.ts` et sont dédupliqués avec les événements serveur par ID d’événement |
 | `FACEBOOK_TEST_EVENT_CODE`, `FACEBOOK_API_VERSION` | Code test facultatif et version Graph (`v22.0` par défaut) |
 | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | Assistant lecture seule facultatif ; clé vide le laisse indisponible, modèle par défaut dans `.env.example` |
+| `TIKTOK_PIXEL_ID`, `TIKTOK_ACCESS_TOKEN` | TikTok Events API serveur facultatif, désactivé sans les deux ; le token reste en env serveur |
+| `TIKTOK_TEST_EVENT_CODE`, `TIKTOK_API_BASE` | Code test facultatif ; base API v1.3 par défaut |
+| `SECURITY_ACCEPT_GLOBAL_BUDGETS` | `1` pour accepter explicitement, en production, des budgets de débit globaux uniquement (sans en-tête IP de confiance) |
+| `HEALTH_DETAILS_TOKEN` | Facultatif, ≥32 caractères ; active le détail de `/api/health` en Bearer. Sans lui, la route publique ne renvoie que `{status, time}` |
+| `LOG_FORMAT` | `json` (défaut en production) ou `pretty` (défaut en dev) |
+| `LOG_LEVEL` | `debug` pour émettre les logs debug en production ; sinon ignoré |
+| `MIGRATIONS_ALLOW_CHECKSUM_MISMATCH` | **Récupération uniquement** (`1`), voir « Migrations et checksums » ; à retirer ensuite |
+| `BACKUP_DIR`, `BACKUP_RETENTION`, `BACKUP_RCLONE_REMOTE` | Lus par `scripts/backup-db.mjs` : dossier (défaut `<dossier DB>/backups`), jeux conservés (défaut 14), destination rclone facultative |
+
+Variables internes, à ne pas définir : `NODE_ENV`, `NEXT_RUNTIME`, `NEXT_PHASE`,
+`PORT`, `NEXT_PUBLIC_STORE_LOCALE` (dérivée de `store.config.ts`) et
+`__NEXT_IMAGE_OPTS` (injectée par Next au build).
+
 
 La clé storefront donne accès aux seules routes v1, pas à l’administration ou
 aux sessions Auth.js. La clé catalogue est distincte. Ne jamais exposer ces clés
@@ -52,6 +65,34 @@ au service est bloqué. Sans cela, laisser `SECURITY_TRUSTED_IP_HEADER` vide ; l
 budgets globaux/compte/téléphone restent actifs. Configurer aussi les limites de
 corps, connexions et débit au proxy. Ne pas dériver des permissions du `Host`
 fourni par l’appelant.
+
+## Checklist de production
+
+Au démarrage, `src/lib/env.ts` valide l’environnement et **interrompt le boot**
+avec la liste des problèmes (en production) :
+
+- `AUTH_SECRET` présent, ≥32 caractères ; `CRM_PUBLIC_URL` URL absolue sans chemin.
+- `SECURITY_ALLOWED_ORIGINS` : origines exactes en HTTPS, sans joker.
+- `DELIVERY_PROVIDER` valant `mock` ou `ozon` (et identifiants Ozon si `ozon`).
+- `SECURITY_TRUSTED_IP_HEADER` (`x-real-ip` ou `x-forwarded-for`, seulement derrière
+  un proxy qui l’écrase) **ou** `SECURITY_ACCEPT_GLOBAL_BUDGETS=1`. Dans ce second
+  cas il n’existe que des budgets globaux : un seul client abusif peut épuiser les
+  budgets de commande/connexion de tous. Ajouter alors une limite de débit au
+  reverse proxy.
+
+Avertissements au boot et dans `/api/health` détaillé : `DELIVERY_PROVIDER=mock` en
+production (aucun colis réel n’est créé — les commandes confirmées ne partent pas
+chez le transporteur) et budgets globaux acceptés. Un mock en production doit être
+une décision explicite et temporaire.
+
+Ne jamais committer de fichier env de production (`.env`, `.env.local`,
+`.env.production*`) : ils restent privés sur le serveur ou dans le gestionnaire de
+secrets de la plateforme. Seul `.env.example` (sans valeur réelle) est versionné.
+
+Workers : un **bail en base** (90 s de TTL, renouvelé par heartbeat) garantit un seul
+propriétaire de workers par DB. Un second processus sur la même DB ne démarre pas
+les workers tant que le bail est valide ; après un arrêt brutal, attendre
+l’expiration du TTL avant de relancer. Le déploiement reste un seul processus par DB.
 
 ## Déploiement Docker
 
@@ -87,13 +128,18 @@ ses secrets serveur propres. Aucune base PostgreSQL/Redis n’est requise par le
 
 ## Santé et surveillance
 
-`GET /api/health` ouvre/vérifie la DB, renvoie 200 avec `status: "ok"`, `db: true`,
-`workers.{submission,tracking,meta}.{enabled,lastTickAt?}` et les compteurs
-`queues.{submissionsQueued,submissionsNeedsReview,submissionsFailed}` ; erreur DB →
-503. Le healthcheck Docker teste cette URL sur `127.0.0.1`, délai initial 60 s.
-Il ne valide ni les identifiants Ozon, ni la fraîcheur des heartbeats, ni la
-livraison effective. Surveiller séparément les ticks absents/périmés et les files
-en échec/revue. Un tick indique une boucle exécutée, pas un appel provider réussi.
+`GET /api/health` ouvre/vérifie la DB. Réponse publique : uniquement
+`{status, time}` avec `status` = `ok` ou `degraded` (HTTP 200), ou `down` (HTTP 503,
+erreur DB). `degraded` signale un worker activé dont le heartbeat est périmé ou qui
+cumule au moins 5 erreurs consécutives. Avec `Authorization: Bearer $HEALTH_DETAILS_TOKEN`
+(variable ≥32 caractères) la réponse ajoute `db`, `provider`, `warnings`, `lease`,
+`workers.{submission,tracking,meta,tiktok}.{enabled,lastTickAt,stale,…}` et les compteurs
+`queues.{submissionsQueued,submissionsNeedsReview,submissionsFailed}`. Le healthcheck
+Docker teste cette URL sur `127.0.0.1`, délai initial 60 s ; il reste vert en
+`degraded` : surveiller le champ `status` depuis un moniteur externe (avec le token
+pour le détail). Il ne valide ni les identifiants Ozon ni la livraison effective ;
+un tick indique une boucle exécutée, pas un appel provider réussi. Les logs sont
+structurés (`LOG_FORMAT`), sans données personnelles ni URL à identifiants.
 Les workers démarrent via l’instrumentation Node : soumission, tracking, Meta
 facultatif et synchronisation des villes. Garder le processus long-vivant.
 
@@ -137,23 +183,42 @@ restrictifs. Ne pas partager ce volume avec des utilisateurs non autorisés ; ro
 et les administrateurs de l’hôte restent capables d’accéder aux données. Les anciens
 snapshots déjà créés ne sont pas chmodés par le script : corriger leurs droits
 avant de les copier hors du répertoire privé.
-Les 14 derniers **fichiers `crm-*.db`** sont conservés dans `backups/` à côté de
-la DB (donc `/app/data/backups` en Compose). Ce n’est pas un planificateur :
-programmer la commande quotidiennement et surveiller son code de sortie. Il ne
-sauvegarde ni médias, ni secrets, ni fichiers d’autres préfixes. Une sauvegarde
-locale seule ne protège pas contre la perte du disque/volume : copier les DB,
-les uploads et les secrets chiffrés vers une destination hors hôte avec rétention
-indépendante et accès limité. Pour un point de restauration DB+médias commun,
-mettre les écritures en maintenance et arrêter le CRM pendant leur capture.
-Ne pas copier seulement `crm.db` à chaud en ignorant son WAL.
+Chaque exécution produit un jeu daté : `crm-<horodatage>.db` (snapshot SQLite),
+`uploads-<horodatage>.tar.gz` (médias) et `manifest-<horodatage>.json` (sha256 de
+chaque artefact). La rétention (`BACKUP_RETENTION`, 14 jeux par défaut) s’applique
+à ces trois préfixes dans `backups/` (donc `/app/data/backups` en Compose, ou
+`BACKUP_DIR`). Si `BACKUP_RCLONE_REMOTE` est défini, chaque artefact est aussi copié
+hors hôte avec `rclone copy` ; rclone doit être installé et configuré séparément
+(ses identifiants ne vont jamais dans ce dépôt) et son absence fait échouer le
+backup. Les secrets (`AUTH_SECRET`, clés) ne sont pas sauvegardés : les conserver
+chiffrés ailleurs. Ce n’est pas un planificateur : utiliser les exemples de
+`deploy/backup/` (`crm-backup.cron`, ou `crm-backup.service` + `crm-backup.timer`
+systemd ; remplacer `<container>` par le conteneur en cours) et surveiller le code
+de sortie. Une sauvegarde locale seule ne protège pas contre la perte du
+disque/volume : configurer l’offsite avec une rétention indépendante et un accès
+limité. Pour un point de restauration DB+médias strictement commun, mettre les
+écritures en maintenance pendant la capture. Ne pas copier seulement `crm.db` à
+chaud en ignorant son WAL.
 
-Exemple de contrôle d’un snapshot (chemin à adapter, ne modifie pas la source) :
+**Vérifier un snapshot** (copie temporaire, n’ouvre jamais la DB vivante) :
+
+```sh
+npm run backup:verify                      # dernier crm-*.db de BACKUP_DIR
+npm run backup:verify -- /chemin/crm-<horodatage>.db
+docker compose --env-file .env -p ma-boutique exec crm node scripts/verify-backup.mjs
+```
+
+Il contrôle le sha256 du manifeste, `integrity_check`, `foreign_key_check` et que
+le nombre de migrations appliquées égale celui des fichiers, puis affiche les
+comptages commandes/produits. Un code de sortie non nul = backup inutilisable.
+
+Contrôle manuel équivalent (chemin à adapter, ne modifie pas la source) :
 
 ```sh
 DB_PATH=/chemin/backup/crm-snapshot.db node --input-type=module -e 'import Database from "better-sqlite3"; const db=new Database(process.env.DB_PATH,{readonly:true,fileMustExist:true}); const result=db.pragma("integrity_check"); if(result.length!==1 || result[0].integrity_check!=="ok" || db.pragma("foreign_key_check").length) process.exitCode=1; console.log(result); db.close();'
 ```
 
-Tester périodiquement une restauration complète dans **un autre répertoire/volume
+**Exercice de restauration** (au moins à chaque changement de version majeure, et trimestriellement) : tester une restauration complète dans **un autre répertoire/volume
 isolé**, avec `DELIVERY_PROVIDER=mock`, clés de test, intégrations externes
 désactivées et sans trafic public. Restaurer DB et uploads, attribuer les droits
 1001, lancer la version logicielle correspondante puis vérifier santé, connexion,
@@ -167,6 +232,65 @@ destination arrêtée. Ne jamais garder des sidecars d’une autre DB. Rétablir
 droits et secrets, redémarrer une seule instance puis réconcilier les opérations
 courier effectuées après la sauvegarde avant reprise du trafic. Restaurer SQLite
 ne restaure pas le portail transporteur : aucun retry aveugle d’opération incertaine.
+
+## Migrations et checksums
+
+Chaque migration appliquée est enregistrée dans `_migrations` avec son checksum
+sha256 ; les lignes plus anciennes sans checksum sont complétées au premier boot.
+Une erreur de migration interrompt le démarrage (aucune erreur avalée) et la
+transaction de ce fichier est annulée. Si un fichier déjà appliqué a été modifié, le
+boot échoue (« modifiée après application »). Procédure :
+
+1. **Ne jamais éditer** une migration appliquée ; restaurer le fichier d’origine
+   depuis git (`git checkout -- migrations/NNN_*.sql`) puis redéployer.
+2. Seulement si la divergence est connue, comprise et inoffensive (par exemple fin de
+   ligne) et que le fichier d’origine est introuvable : démarrer **une fois** avec
+   `MIGRATIONS_ALLOW_CHECKSUM_MISMATCH=1` (avertissement journalisé), puis retirer la
+   variable. Les changements de schéma passent par une **nouvelle** migration.
+3. Faire un backup vérifié avant toute récupération.
+
+## Outcomes de livraison et Ozon
+
+Les agents enregistrent manuellement **Livré** / **Refusé** sur une commande expédiée ;
+ces outcomes alimentent la fiche client, la blocklist, les KPI et les encaissements.
+La table de correspondance `src/lib/shipping/status-map.ts` est volontairement vide :
+les statuts Ozon inconnus ne changent jamais automatiquement stock ni outcome.
+
+> **Bloquant de lancement pour les outcomes automatiques** : tant que le propriétaire
+> n’a pas observé des statuts Ozon réels (`npm run ozon:verify`, voir « Activation
+> Ozon par le propriétaire ») et validé une correspondance, **garder les outcomes
+> Livré/Refusé manuels**. Ne pas inventer de mapping.
+
+## Rapprochement COD (encaissements)
+
+Flux dans `/crm/encaissements` : 1) les commandes livrées représentent du COD à
+encaisser (vieillissement des impayés affiché) ; 2) importer le relevé CSV du
+transporteur : l’aperçu devine les colonnes (numéro de suivi, montant versé, frais),
+vous corrigez le mapping ; 3) le CRM rapproche chaque ligne à une commande par numéro
+de suivi ; les écarts de montant ou lignes inconnues doivent être acceptés
+explicitement ou traités par un humain ; 4) valider enregistre la remise (annulable
+depuis son détail). Les dépenses
+publicitaires (`/crm/depenses`), le coût variante, les tarifs par ville et les KPI
+(confirmation, livraison, profit, ROAS, cash remis) se lisent sur le tableau de bord ;
+les commandes s’exportent en CSV depuis la liste. Valider les montants contre le
+portail transporteur avant de considérer un écart comme réglé.
+
+## Paniers abandonnés (leads) et obligations légales
+
+La capture de paniers abandonnés est **désactivée par défaut** (`leads.enabled` dans
+`store.config.ts` ; la route `/api/store/leads` répond 404 sinon) et se consulte dans
+`/crm/paniers`. Elle enregistre des données personnelles (téléphone normalisé, nom
+facultatif, variantes/quantités) avant toute commande : informer le client dans la
+page Confidentialité et ne l’activer qu’avec une base légale (loi marocaine 09-08,
+CNDP : déclaration/autorisation selon votre cas). Les leads de plus de 30 jours
+(`LEAD_RETENTION_DAYS`) sont purgés automatiquement, quel que soit leur statut ; un
+téléphone bloqué n’est jamais enregistré.
+
+Ces textes n’ont pas valeur de conseil juridique : faire valider par le
+propriétaire. La page de suivi client `/suivi` ne révèle une commande qu’avec la
+référence de commande (affichée sur la page de remerciement) et le téléphone
+correspondant ; toute erreur renvoie la même réponse vide. L’attribution UTM (source/campagne) est
+capturée par le storefront intégré.
 
 ## Activation Ozon par le propriétaire
 

@@ -166,4 +166,4 @@ graph TD
 - [x] [task-34-code-cleanup](./tasks/task-34-code-cleanup.md) — Code consistency cleanup
 
 ### Wave 8
-- [ ] [task-35-docs-and-env-sync](./tasks/task-35-docs-and-env-sync.md) — Documentation, env examples and Compose sync
+- [x] [task-35-docs-and-env-sync](./tasks/task-35-docs-and-env-sync.md) — Documentation, env examples and Compose sync

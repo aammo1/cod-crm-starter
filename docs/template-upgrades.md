@@ -40,6 +40,7 @@ révision/tag précis avant de planifier une mise à niveau.
 ```sh
 npm run lint
 npx tsc --noEmit
+npm run test:unit
 DELIVERY_PROVIDER=mock npm run build
 npm run test:bootstrap
 npm run test:crm
@@ -53,6 +54,51 @@ node --test examples/nextjs/verify.test.mjs
 Ces commandes de régression utilisent leurs fixtures isolées ; toute vérification
 manuelle doit aussi utiliser DB/médias temporaires et secrets éphémères. Faire un
 smoke Docker avec un projet/volume neuf lorsque le daemon est accessible.
+
+## Appliquer la spec « hardening and growth » à une copie existante
+
+Une copie créée avant cette spec est à niveau `019` : elle reçoit les migrations
+`020`–`027` dans l’ordre, au premier démarrage du nouveau code (sauvegarde vérifiée
+avant, voir [les opérations](operations.md)). Ne jamais renommer ni éditer ces
+fichiers ; leurs checksums sont maintenant enregistrés dans `_migrations`.
+
+| Migration | Ajout |
+| --- | --- |
+| `020_delivery_outcomes` | Outcomes Livré/Refusé par commande |
+| `021_customer_blocklist` | Blocklist téléphone |
+| `022_variant_cost` | Coût par variante |
+| `023_ad_spend` | Dépenses publicitaires |
+| `024_order_attribution` | Attribution UTM des commandes |
+| `025_cod_remittances` | Remises COD et lignes importées |
+| `026_city_tariffs` | Tarifs/frais par ville |
+| `027_checkout_leads` | Paniers abandonnés (opt-in) |
+
+Changements d’environnement à reporter dans le `.env`/Compose privé de la copie
+(comparer avec `.env.example`, sans écraser les valeurs locales) :
+
+- `DELIVERY_PROVIDER` devient **obligatoire** en production (`mock` ou `ozon`).
+- `SECURITY_TRUSTED_IP_HEADER` **ou** `SECURITY_ACCEPT_GLOBAL_BUDGETS=1` obligatoire
+  en production ; sinon le boot échoue (`src/lib/env.ts`).
+- Nouveaux, facultatifs : `HEALTH_DETAILS_TOKEN`, `LOG_FORMAT`, `LOG_LEVEL`,
+  `BACKUP_DIR`, `BACKUP_RETENTION`, `BACKUP_RCLONE_REMOTE`, variables TikTok.
+  `MIGRATIONS_ALLOW_CHECKSUM_MISMATCH` est réservé à la récupération.
+- Le `docker-compose.yml` passe ces variables au conteneur ; reporter les lignes
+  manquantes dans le Compose local.
+- Si le `store.config.ts` de la copie a été adapté : ajouter `leads` (désactivé par
+  défaut) et éventuellement `colors.accentForeground` ; la copie fonctionne sans.
+- Un seul processus par DB : le bail de workers (90 s) empêche un double owner.
+  Arrêter l’ancien processus et attendre l’expiration du bail si besoin.
+- Planifier les sauvegardes avec `deploy/backup/` et tester `npm run backup:verify`.
+
+`npm run new-store` écrit désormais `.template-version` (JSON : modèle, commit
+upstream, date de création). Pour une copie plus ancienne, créer ce fichier à la
+main avec la révision upstream réellement utilisée, afin de cadrer les prochaines
+revues. Le contrat v1 est inchangé : les storefronts externes n’ont rien à migrer.
+
+Ajouter à la liste de vérification : `npm run test:unit` et
+`npm run test:release-tree`. Le test `scripts/unit/next-internals.test.mjs` vérifie
+les imports profonds de Next et `__NEXT_IMAGE_OPTS` (voir la checklist Next plus bas) :
+il doit passer avant et après tout changement de version de Next.
 
 ## Retour arrière
 

@@ -10,6 +10,14 @@ commandes, équipe, confirmation, expéditions/BL, suivi, retours et paramètres
 Interface CRM en français, prix MAD entiers ; langue du storefront `fr` ou `ar`.
 Un storefront externe reste possible via l’API v1 (voir plus bas).
 
+Fonctionnalités opérateur : outcomes de livraison (Livré/Refusé), blocklist et
+historique client étendu, attribution UTM, coût par variante, dépenses publicitaires,
+encaissements COD (import CSV transporteur), tarifs par ville, attribution automatique
+aux agents, paniers abandonnés (optionnel), KPI (confirmation, livraison, profit,
+ROAS), export CSV, page de suivi client `/suivi`, santé détaillée par token,
+validation d’environnement au démarrage, bail de workers (un owner par DB) et
+sauvegardes vérifiables avec copie hors hôte facultative.
+
 ## Démarrage rapide d’une niche
 
 1. Utiliser le modèle (**Use this template**) puis cloner votre copie.
@@ -65,10 +73,13 @@ interactif on peut lire une variable avec `read -rs` et la passer entre guilleme
 cp .env.example .env
 # Renseigner AUTH_SECRET, CRM_PUBLIC_URL et SECURITY_ALLOWED_ORIGINS dans .env.
 # Exemple local : http://localhost:3000 ; production : origine HTTPS exacte.
+# Production : DELIVERY_PROVIDER (mock|ozon) et SECURITY_TRUSTED_IP_HEADER ou
+# SECURITY_ACCEPT_GLOBAL_BUDGETS=1 sont obligatoires (voir docs/operations.md).
 docker compose --env-file .env -p ma-boutique config --quiet
 docker compose --env-file .env -p ma-boutique up -d --build
 docker compose --env-file .env -p ma-boutique exec crm node scripts/create-user.mjs admin@example.test '<mot-de-passe-unique-12-a-128-caracteres>' 'Administrateur' admin
 docker compose --env-file .env -p ma-boutique exec crm node scripts/backup-db.mjs
+docker compose --env-file .env -p ma-boutique exec crm node scripts/verify-backup.mjs
 ```
 
 Service `crm`, port 3000 lié à `127.0.0.1`, volume nommé par projet
@@ -103,6 +114,7 @@ facultatifs et ne nécessitent aucune clé payante pour démarrer.
 ```sh
 npm run lint
 npx tsc --noEmit
+npm run test:unit
 DELIVERY_PROVIDER=mock npm run build
 DELIVERY_PROVIDER=mock npm run start
 node --test examples/nextjs/verify.test.mjs
@@ -112,6 +124,7 @@ npm run test:catalog-agent
 npm run test:security
 npm run test:meta
 npm run test:assistant
+npm run backup:verify   # contrôle d’un snapshot créé par npm run backup
 ```
 
 `npm run start` sert à la vérification locale ; Docker lance

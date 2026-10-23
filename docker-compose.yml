@@ -33,6 +33,15 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-qwen/qwen3.7-flash}
       UPLOAD_DIR: /app/data/uploads
+      HEALTH_DETAILS_TOKEN: ${HEALTH_DETAILS_TOKEN:-}
+      LOG_FORMAT: ${LOG_FORMAT:-}
+      LOG_LEVEL: ${LOG_LEVEL:-}
+      # Recovery only (see docs/operations.md); leave empty.
+      MIGRATIONS_ALLOW_CHECKSUM_MISMATCH: ${MIGRATIONS_ALLOW_CHECKSUM_MISMATCH:-}
+      # Used by `docker compose exec crm node scripts/backup-db.mjs`.
+      BACKUP_DIR: ${BACKUP_DIR:-}
+      BACKUP_RETENTION: ${BACKUP_RETENTION:-14}
+      BACKUP_RCLONE_REMOTE: ${BACKUP_RCLONE_REMOTE:-}
     volumes:
       - crm-data:/app/data
 volumes:

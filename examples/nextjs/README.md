@@ -162,6 +162,12 @@ et la map est bornée à 1000. Les nouveaux cookies ne contournent pas le plafon
 global. Le CRM ajoute ses budgets globaux et par téléphone ; les replays passent
 avant le quota de nouvelles commandes par téléphone.
 
+Sans en-tête IP de confiance, ce limiteur n’a que des compteurs **globaux** (et par
+session) : un client abusif peut consommer le plafond de 60 requêtes/minute pour tous
+les visiteurs. Appliquer donc une limitation de débit par IP au reverse proxy ou à
+la périphérie (en n’utilisant que l’IP authentifiée par l’hébergeur) ; c’est la
+protection recommandée, le limiteur de l’exemple n’en est que le dernier filet.
+
 Ce limiteur fonctionne pour **un processus Node long-vivant**. Avant un déploiement
 serverless, plusieurs workers/réplicas ou des redémarrages fréquents, le remplacer
 par des compteurs atomiques partagés (p. ex. Redis) et appliquer au reverse proxy
