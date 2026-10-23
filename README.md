@@ -1,4 +1,4 @@
-# COD CRM Starter
+# Store CRM Boilerplate
 
 Vérification de l’assemblage et limites constatées :
 [`docs/release-verification.md`](docs/release-verification.md).

@@ -1,4 +1,4 @@
-# AGENTS.md — COD CRM Starter
+# AGENTS.md — Store CRM Boilerplate
 
 Single-store Moroccan COD template: storefront + CRM in one Next.js app and one
 SQLite DB, one copy per niche. Storefront locale is `fr` or `ar` (RTL) from
