@@ -224,7 +224,10 @@ export function createStorefrontOrderService(deps: StorefrontOrderDependencies) 
             if (duplicate) throw new StorefrontOrderError(409, "META_EVENT_CONFLICT", "Cet événement est déjà associé à une commande.");
           }
           recordTikTokPurchaseContext(db, id, tiktokContextFromAttribution(m, m.clientIpAddress, m.clientUserAgent),
-            offer ? Date.parse(offer.expiresAt) : now);
+            offer ? Date.parse(offer.expiresAt) : now, offer ? undefined : {
+              total: amounts.total, items, upsellItems: [], customerPhone: request.customer.phone,
+              eventTime: Math.floor(now / 1000),
+            });
         }
         const publicOffer = offer ? { offerId: offer.offerId, productId: offer.productId,
           name: offer.name, image: offer.image, originalPrice: offer.originalPrice,

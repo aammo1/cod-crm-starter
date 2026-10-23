@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -68,10 +68,16 @@ test("production mock startup creates an empty isolated CRM and protects operati
     }
     const login = await fetch(`${origin}/login`);
     assert.equal(login.status, 200);
-    assert.match(await login.text(), /Connexion/);
+    const loginHtml = await login.text();
+    assert.match(loginHtml, /Connexion/);
+    // The CRM document is always French/LTR, whatever the storefront locale.
+    assert.match(loginHtml, /<html lang="fr" dir="ltr"/);
     const shop = await fetch(`${origin}/boutique`);
     assert.equal(shop.status, 200);
-    assert.match(await shop.text(), /Aucun produit pour le moment/);
+    const shopHtml = await shop.text();
+    assert.match(shopHtml, /Aucun produit pour le moment|لا توجد منتجات/);
+    const storeLocale = /locale:\s*"(fr|ar)"/.exec(readFileSync(path.join(root, "store.config.ts"), "utf8"))?.[1] ?? "fr";
+    assert.match(shopHtml, new RegExp(`<html lang="${storeLocale}" dir="${storeLocale === "ar" ? "rtl" : "ltr"}"`));
     assert.equal((await fetch(`${origin}/api/catalog-agent`)).status, 503);
     db = new Database(dbPath, { readonly: true });
     const expectedMigrations = readdirSync(path.join(root, "migrations"))

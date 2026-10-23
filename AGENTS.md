@@ -29,9 +29,8 @@ secrets. No shared multi-tenant state or automatic template updates.
 - `node scripts/create-user.mjs <email> <password> <name> <admin|agent>` — explicit
   create/update, 12–128 character password; existing email reactivates and bumps
   session version. Run from repo root, scripts do not load `.env.local`.
-- `npm run new-store` — new-niche wizard (added by specs/storefront-boilerplate)
+- `npm run new-store` — new-niche wizard
 - `npm run perf-budget` — storefront first-load JS budget, run after build
-  (added by specs/storefront-boilerplate)
 - `npm run backup` — online SQLite snapshot; in image use `node scripts/backup-db.mjs`
 
 ## Ownership and integration boundaries
@@ -114,7 +113,7 @@ are env-only. Never put secrets in URLs, logs, browser JSON or props.
 - The build never opens SQLite. Storefront loaders return empty data during
   `NEXT_PHASE=phase-production-build`, and a boot warm-up revalidates after start.
 - Storefront client bundles must not include zod, libphonenumber-js, DB or service
-  modules. First-load JS budget is ≤ 120 KB gzipped on product and landing pages
+  modules. First-load JS budget is ≤ 120 KiB (122,880 B) gzip-9 on product and landing pages
   (`scripts/perf-budget.mjs`).
 - Reference code may be read from the zehri and hellobaby repos for porting; never
   read their env/data/DB and never modify them.

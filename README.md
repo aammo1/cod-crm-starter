@@ -14,9 +14,11 @@ Un storefront externe reste possible via l’API v1 (voir plus bas).
 
 1. Utiliser le modèle (**Use this template**) puis cloner votre copie.
 2. `npm install`
-3. `npm run new-store` (assistant de nouvelle niche, ajouté par `specs/storefront-boilerplate`)
+3. `npm run new-store` (assistant de nouvelle niche)
 4. `npm run dev`
 5. Ajouter les produits sur `/admin`.
+
+Guide complet, du dépôt au déploiement Coolify/Cloudflare : [`docs/new-niche.md`](docs/new-niche.md).
 
 ## Une installation par boutique
 

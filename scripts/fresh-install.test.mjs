@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { auditReleaseTree, root } from "./release-tree.mjs";
 
 test("intended public tree installs offline and builds without private assets or a database", { timeout: 300_000 }, () => {
   const files = auditReleaseTree();
-  const temp = mkdtempSync("/tmp/opencode/crm-fresh-install-");
+  const temp = mkdtempSync(path.join(os.tmpdir(), "crm-fresh-install-"));
   const app = path.join(temp, "app");
   mkdirSync(app);
   try {

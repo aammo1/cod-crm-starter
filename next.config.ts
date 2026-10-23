@@ -4,6 +4,8 @@ import rawStoreConfig from "./store.config";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Multiple root layouts (storefront vs CRM document): unmatched URLs use app/global-not-found.tsx.
+  experimental: { globalNotFound: true },
   // The store locale is fixed at build time; inlining it lets the bundler ship only that dictionary.
   env: { NEXT_PUBLIC_STORE_LOCALE: (rawStoreConfig.locale as string) === "ar" ? "ar" : "fr" },
   // inlineCss removed: storefront pages are cached (ISR + Cloudflare), so a shared, cacheable

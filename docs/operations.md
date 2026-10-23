@@ -26,7 +26,7 @@ les secrets résolus ; utiliser `config --quiet`.
 | `CRM_PUBLIC_URL` | Origine canonique publique des médias, sans chemin/query ni identifiants ; HTTPS en production |
 | `STOREFRONT_API_KEY` | `openssl rand -hex 32`, ≥32 caractères ; absent/invalide désactive v1 (503) |
 | `SECURITY_ALLOWED_ORIGINS` | Liste séparée par virgules d’origines navigateur CRM exactes, protocole et port inclus ; sans wildcard |
-| `SECURITY_TRUSTED_IP_HEADER` | Vide par défaut ; opt-in `x-real-ip` ou `x-forwarded-for` uniquement derrière un proxy maîtrisé |
+| `SECURITY_TRUSTED_IP_HEADER` | Vide par défaut ; seules valeurs acceptées : `x-real-ip` ou `x-forwarded-for` (dernier saut) ; `CF-Connecting-IP` n’est **pas** supporté (ignoré). Opt-in uniquement derrière un proxy maîtrisé |
 | `DELIVERY_PROVIDER` | Garder `mock` ; **seule cette valeur exacte** sélectionne le mock dans le code. Sans variable, le code utilise Ozon. Image/Compose/exemple fixent mock par défaut |
 | `OZON_CLIENT_ID`, `OZON_API_KEY` | Identifiants propres au compte de cette boutique, inutiles pour mock |
 | `OZON_BASE_URL` | `https://api.ozonexpress.ma` par défaut |
@@ -35,7 +35,7 @@ les secrets résolus ; utiliser `config --quiet`.
 | `OZON_POLL_INTERVAL_MIN` | 30 min par défaut, minimum 5 min |
 | `OZON_TRACK_BATCH` | 25 par défaut |
 | `CATALOG_AGENT_KEY` | Secret dédié ≥32 caractères ; vide désactive l’API catalogue automatisée |
-| `FACEBOOK_PIXEL_ID`, `FACEBOOK_ACCESS_TOKEN` | Meta serveur facultatif, désactivé sans ID numérique et token ; aucun Pixel navigateur dans le CRM |
+| `FACEBOOK_PIXEL_ID`, `FACEBOOK_ACCESS_TOKEN` | Meta serveur facultatif, désactivé sans ID numérique et token ; le CRM n’y monte aucun Pixel ; les Pixels navigateur du storefront viennent des identifiants de `store.config.ts` et sont dédupliqués avec les événements serveur par ID d’événement |
 | `FACEBOOK_TEST_EVENT_CODE`, `FACEBOOK_API_VERSION` | Code test facultatif et version Graph (`v22.0` par défaut) |
 | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | Assistant lecture seule facultatif ; clé vide le laisse indisponible, modèle par défaut dans `.env.example` |
 
@@ -211,3 +211,119 @@ La simple attente de 20 secondes ne résout pas les replays historiques.
 Coordonner la rotation de clé storefront avec son serveur ; aucune double clé
 automatique. Voir [intégration](storefront-integration.md) pour le cookie exemple
 et [mises à niveau](template-upgrades.md) pour migrations/rollback.
+
+## Cloudflare
+
+Le storefront et le CRM partagent le même domaine. Cloudflare sert de cache de bord
+pour les pages publiques et de proxy pour tout le reste. À configurer par le
+propriétaire (action manuelle, non faite par le code).
+
+- **DNS** : enregistrement proxifié (nuage orange). **SSL/TLS : Full (strict)**, avec
+  le certificat Let’s Encrypt que Coolify installe sur l’origine.
+- **Cache Rules**, dans cet ordre :
+  1. **Bypass cache** : chemin commençant par `/crm`, `/admin`, `/login`, `/api/`
+     (sauf `/api/media/` et `/api/store/cross-sells`, voir règles 2 et 4) ou
+     `/merci` ; **ou** cookie contenant `authjs.session-token`.
+  2. **Eligible for cache, respect origin** : `/_next/static/*`, `/_next/image*`,
+     `/api/media/*`, `/brand/*`, `/images/*` (l’origine envoie déjà un
+     `Cache-Control` long, immutable pour `/brand` et `/images`).
+  3. **Eligible for cache, Edge TTL 60 s, Browser TTL « respect origin »** : HTML de
+     `/`, `/boutique*`, `/produit/*`, `/l/*`, `/a-propos`, `/contact`,
+     `/livraison-retours`, `/cgv`, `/confidentialite`. Compromis : après une
+     modification dans l’admin, le bord peut retarder d’au plus 60 s ; c’est
+     acceptable car la confirmation reste la barrière de stock. Après un gros
+     changement de catalogue, purger depuis le tableau de bord Cloudflare.
+  4. `/api/store/cross-sells` : respect origin (`s-maxage=60`).
+- Activer **Brotli** et **HTTP/3**. **Ne pas** activer Rocket Loader (il casse le
+  chargement différé des pixels). Auto Minify est inutile.
+- **IP client** : `SECURITY_TRUSTED_IP_HEADER` n’accepte que `x-real-ip` ou
+  `x-forwarded-for` (toute autre valeur, dont `CF-Connecting-IP`, est ignorée sans
+  erreur : aucune IP de confiance). Pour `x-forwarded-for`, le code lit le **dernier**
+  saut. Derrière Cloudflare puis Traefik/Coolify, ce dernier saut peut être une IP de
+  bord Cloudflare ou du proxy, pas le visiteur. Recommandation sûre : **laisser vide**,
+  sauf si votre chaîne de proxys (accès direct à l’origine fermé, pare-feu limité aux
+  plages Cloudflare) écrase `x-real-ip` ou garantit un dernier saut `x-forwarded-for`
+  égal à l’IP du visiteur. Limite connue : tant que ce n’est pas le cas, les limites
+  de débit par IP et l’IP envoyée à la CAPI Meta/TikTok voient l’IP du proxy/bord, ou
+  aucune IP si la variable est vide ; les budgets globaux/compte/téléphone restent
+  actifs.
+- `CRM_PUBLIC_URL` et `SECURITY_ALLOWED_ORIGINS` doivent utiliser le domaine public
+  en `https://`.
+
+### Coolify
+
+Ressource **Dockerfile** depuis le dépôt GitHub de la niche, port 3000, **une seule
+réplique** (SQLite) avec arrêt de l’ancien conteneur avant remplacement. Volume
+persistant monté sur `/app/data` : il contient `crm.db`, `uploads`, `backups` **et le
+cache d’images** `/app/data/image-cache` (lien depuis `/app/.next/cache/images`).
+Variables : coller `.env.production.example` (voir [new-niche](new-niche.md)). Health
+check : `/api/health`. **`PORT` doit correspondre au port réellement écouté** (3000
+dans l’image) : le préchauffage au démarrage appelle `http://127.0.0.1:${PORT ?? 3000}`.
+Un `PORT` différent du port d’écoute laisse `/` et `/boutique` vides jusqu’à la
+revalidation de 300 s.
+
+## Cache & performance
+
+- **Fraîcheur** : les pages `/`, `/boutique`, `/boutique/[categorie]`,
+  `/produit/[slug]` et `/l/[slug]` sont servies par l’ISR de Next (`revalidate = 300`)
+  et le cache de données `unstable_cache` étiqueté `storefront`. `revalidateStorefront()`
+  (tag + `revalidatePath("/", "layout")`) est appelé après chaque mutation visible :
+  produits/packs/archivage/restauration, paramètres, stock (ouverture, ajustement,
+  lot), confirmation/annulation/édition/lignes de commande, inspection des
+  retours et agent catalogue. Les 300 s rattrapent un oubli.
+- **Build sans base** : `generateStaticParams` renvoie `[]` et les loaders
+  storefront renvoient des données vides pendant `phase-production-build`. Le build
+  n’ouvre jamais SQLite. Au démarrage, un préchauffage (`/api/internal/warmup`,
+  jeton dérivé d’`AUTH_SECRET`) invalide les pages vides puis rend `/` et
+  `/boutique` ; voir la note `PORT` ci-dessus. Les autres pages se remplissent à la
+  première visite.
+- **Cache d’images** `/app/data/image-cache` : sans risque à supprimer, il se
+  reconstruit à la demande.
+- **Contrôle** (HIT/STALE attendus après la première visite, jamais MISS à chaque
+  requête) :
+
+  ```sh
+  for p in / /boutique /produit/<slug> /l/<slug>; do
+    curl -sI "https://votre-domaine$p" | grep -i '^x-nextjs-cache'
+  done
+  # Côté Cloudflare : curl -sI ... | grep -i '^cf-cache-status'
+  ```
+
+- **Interdit dans `src/app/(storefront)`**, car cela rend la route dynamique :
+  `cookies()`, `headers()`, `searchParams`, `auth()`, `connection()`,
+  `export const dynamic = "force-dynamic"`.
+- **Budget JS** : ≤ 120 KiB (122 880 octets) gzip au premier chargement sur `/produit/[slug]` et
+  `/l/[slug]`. Après un build :
+
+  ```sh
+  DELIVERY_PROVIDER=mock npm run build && npm run perf-budget
+  ```
+
+  `scripts/perf-budget.mjs` ne lit que `.next` (jamais la DB). Pour chaque route il
+  prend `pages[route]` de `.next/app-build-manifest.json` plus l’entrée du layout racine
+  storefront `/(storefront)/layout`, fichiers `.js` uniquement, dédupliqués, gzip niveau 9,
+  puis somme. Le budget par défaut est 120 KiB (122 880 octets), modifiable avec
+  `PERF_BUDGET_KB`. Il échoue (code 1) si un budget est dépassé, si `.next` ou une
+  route manque, si une route storefront n’est plus statique/ISR, ou si un chunk
+  de ces routes contient `libphonenumber`, `ZodError`, `better-sqlite3` ou
+  `node:crypto`. Il affiche aussi `/`, `/boutique`, `/merci` et une page de
+  contenu pour information. La marge est faible (build de revue : `/produit/[slug]` ≈ 115,5 KiB, `/l/[slug]`
+  ≈ 117,5 KiB sur 120 KiB, soit ≈ 118,3 et ≈ 120,3 kB décimaux ; relancer
+  `npm run perf-budget` pour les valeurs exactes). Tout ajout de code client
+  storefront impose de relancer le budget après build. Si le budget approche : si le budget approche, alléger
+  l’îlot du layout storefront ou charger paresseusement l’UI rarement utilisée.
+- **Toaster** : `sonner` n’est monté que dans le layout `(admin)` et dans un toaster
+  de superposition chargé paresseusement par l’hôte du tunnel. Un nouveau code
+  storefront ne doit pas importer `sonner` ni `components/ui/sonner` dans le bundle
+  initial.
+- **Packs** : une remise de pack est stockée comme remise fixe de commande, avec
+  `pack_snapshot_json` pour le détail. Si un agent modifie la commande, la remise
+  fixe est conservée jusqu’à ce que l’agent la change ; il n’y a aucun recalcul
+  automatique.
+
+## Limites connues
+
+- `/merci` affiche les totaux de ligne sans remise avec le total serveur pour les
+  commandes en pack : pas encore de ligne de remise ni de livraison.
+- Sans IP client fiable (voir « IP client »), les limites par IP et la CAPI voient
+  l’IP du proxy/bord Cloudflare.

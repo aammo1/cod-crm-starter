@@ -96,5 +96,5 @@ graph TD
 - [x] [task-14-landing-pages](./tasks/task-14-landing-pages.md): `/l/[slug]` with packs and an inline order form
 
 ### Wave 7
-- [ ] [task-15-docs-and-perf-budget](./tasks/task-15-docs-and-perf-budget.md): New-niche guide, Cloudflare docs, perf budget script
+- [x] [task-15-docs-and-perf-budget](./tasks/task-15-docs-and-perf-budget.md): New-niche guide, Cloudflare docs, perf budget script
 - [ ] [task-16-ozon-status-map](./tasks/task-16-ozon-status-map.md): Fill the Ozon STATUS_MAP from verified samples

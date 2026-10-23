@@ -116,6 +116,18 @@ modification GitHub/template ni changement de statut de spec dans cette tâche.
 La publication/fresh release history relève de la tâche 21. Aucun fichier de
 l’application source ou skill global n’a été modifié.
 
+## Résultats PageSpeed Insights (mobile)
+
+À remplir par le propriétaire après déploiement derrière Cloudflare (cible : LCP
+mobile < 2,5 s). Mesurer `/`, un `/produit/<slug>` et un `/l/<slug>` ; le budget JS
+automatique (`npm run perf-budget`) est décrit dans [les opérations](operations.md#cache--performance).
+
+| Route | LCP mobile | TBT | CLS | Date |
+| --- | --- | --- | --- | --- |
+| `/` |  |  |  |  |
+| `/produit/<slug>` |  |  |  |  |
+| `/l/<slug>` |  |  |  |  |
+
 ## Limites factuelles
 
 - **Docker build/run non vérifié** : accès au daemon précédemment refusé ; aucune

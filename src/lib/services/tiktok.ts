@@ -8,7 +8,10 @@ import type { TikTokAttribution, TikTokContext, TikTokProperties } from "@/lib/t
 
 /**
  * Internal/browser event name -> TikTok Events API v1.3 event name.
- * TODO: verify names against TikTok's current docs when online; change only here.
+ * Names follow the TikTok Events API v1.3 standard events (CompletePayment,
+ * ViewContent, AddToCart, InitiateCheckout, Pageview) per the TikTok docs. They
+ * must be confirmed in TikTok Events Manager test events before go-live; change
+ * them only here.
  */
 export const TIKTOK_EVENT_NAMES = {
   Purchase: "CompletePayment",
@@ -37,12 +40,16 @@ export function tiktokContextFromAttribution(attr: TikTokAttribution, ip?: strin
   };
 }
 
-type Snapshot = { total: number; items: OrderItem[]; upsellItems: OrderItem[]; customerPhone: string; eventTime: number };
+export type Snapshot = { total: number; items: OrderItem[]; upsellItems: OrderItem[]; customerPhone: string; eventTime: number };
 type PurchaseRow = { event_id: string; context_json: string; snapshot_json: string | null; order_id: string };
 
-export function recordTikTokPurchaseContext(db: Database.Database, orderId: string, context: TikTokContext, deadline: number) {
-  db.prepare(`INSERT OR IGNORE INTO tiktok_purchases (order_id, event_id, context_json, deadline)
-    VALUES (?, ?, ?, ?)`).run(orderId, context.eventId, JSON.stringify(context), deadline);
+/** A ready snapshot (no upsell offer) lets the finalizer queue immediately; otherwise
+ * the upsell_status trigger writes it on resolution. */
+export function recordTikTokPurchaseContext(db: Database.Database, orderId: string, context: TikTokContext,
+  deadline: number, snapshot?: Snapshot) {
+  db.prepare(`INSERT OR IGNORE INTO tiktok_purchases (order_id, event_id, context_json, deadline, snapshot_json)
+    VALUES (?, ?, ?, ?, ?)`).run(orderId, context.eventId, JSON.stringify(context), deadline,
+      snapshot ? JSON.stringify(snapshot) : null);
 }
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");

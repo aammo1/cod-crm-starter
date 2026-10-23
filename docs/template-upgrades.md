@@ -64,3 +64,38 @@ commandes et appels transporteur postérieurs au snapshot avant toute reprise.
 Ne jamais automatiser un downgrade SQL ou une recréation de colis après rollback.
 Enregistrer la révision cible, les migrations appliquées, les vérifications et la
 date pour que la prochaine mise à niveau parte de l’état réel de cette boutique.
+
+## Points à revérifier à chaque mise à niveau de Next.js
+
+Next est épinglé à **15.5.28**. Le storefront évite volontairement `next/image` côté
+client et s’appuie sur des détails internes de Next ; ne pas changer la version sans
+cette checklist.
+
+- `src/components/storefront/ui/store-image.tsx` importe `getImgProps` et
+  `image-loader` depuis `next/dist/shared/lib/*` (imports profonds) et lit
+  `process.env.__NEXT_IMAGE_OPTS`, remplacé au build par le plugin define de Next.
+  `src/components/storefront/product/gallery.tsx` construit lui-même les URLs
+  `/_next/image?url=…&w=…&q=75`.
+- Le dictionnaire de langue actif vient de `NEXT_PUBLIC_STORE_LOCALE`, défini dans
+  `next.config.ts` (`env`) à partir de `store.config.ts` : un seul dictionnaire `fr`
+  ou `ar` part dans le bundle.
+
+Checklist :
+
+1. Les deux chemins `next/dist/shared/lib/get-img-props` et `image-loader` existent
+   toujours, avec la même signature ; `__NEXT_IMAGE_OPTS` est encore défini.
+2. Les URLs `/_next/image` générées (widths, `q`) restent acceptées par l’optimiseur
+   (`images.deviceSizes`/`imageSizes` de `next.config.ts`, `src/config/image-sizes`).
+3. `NEXT_PUBLIC_STORE_LOCALE` est toujours inlinée : le bundle d’une boutique `fr`
+   ne contient pas le dictionnaire `ar`, et inversement.
+4. `DELIVERY_PROVIDER=mock npm run build` n’ouvre pas la DB, puis `npm run perf-budget`
+   passe (routes `/`, `/produit/[slug]`, `/l/[slug]` toujours statiques/ISR, budget JS
+   respecté ; la marge est faible).
+5. `experimental.globalNotFound: true` est toujours présent dans `next.config.ts` : il est
+   indispensable car il n’y a pas de layout racine de premier niveau
+   (`src/app/global-not-found.tsx`). Structure multi-layouts racine : `(storefront)` et
+   `(admin)` rendent chacun leur propre `<html>` ; les routes hors de ces deux groupes
+   (robots, sitemap, api) n’ont besoin d’aucun layout.
+6. Après `npm run start` et une première visite, `x-nextjs-cache` vaut `HIT` ou `STALE`
+   sur `/`, `/boutique`, `/produit/<slug>` et `/l/<slug>` (voir
+   [Cache & performance](operations.md#cache--performance)).
